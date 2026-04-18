@@ -11,8 +11,8 @@ resources:
   repositories:
     - repository: templates
       type: github
-      name: CadQuery/conda-packages
-      endpoint: CadQuery
+      name: kdschlosser/conda-packages
+      endpoint: kdschlosser
 
 jobs:
 - template: build-bindings-job.yml
