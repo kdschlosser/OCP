@@ -10,7 +10,7 @@ parameters:
   - '10'
   - '11'
   - '12'
-  - '13t'
+  - '13'
   config_file: 'ocp.toml'
   conda_bld: '3.27.0'
   conda_env_file: 'environment.devenv.yml'
