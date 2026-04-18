@@ -169,11 +169,15 @@ jobs:
         - bash: |
             if [[ "${{ py_min }}" == "13t" ]]; then
               export PATH="${PYTHON_313T_PATH}:$PATH"
+              # Force CMake to use our specific Python
               cmake -B build -S "../$(OCP_src)" -G Ninja \
                 -DCMAKE_BUILD_TYPE=Release \
+                -DPython_EXECUTABLE="${PYTHON_313T_PATH}/python3" \
+                -DPython3_EXECUTABLE="${PYTHON_313T_PATH}/python3" \
                 -DPython_ROOT_DIR="${PYTHON_313T_ROOT}" \
                 -DPython3_ROOT_DIR="${PYTHON_313T_ROOT}" \
-                -DPython_EXECUTABLE="${PYTHON_313T_PATH}/python3"
+                -DPython_FIND_STRATEGY=LOCATION \
+                -DPython3_FIND_STRATEGY=LOCATION
             else
               micromamba activate cpp-py-bindgen
               cmake -B build -S "../$(OCP_src)" -G Ninja -DCMAKE_BUILD_TYPE=Release
@@ -186,12 +190,16 @@ jobs:
         - bash: |
             if [[ "${{ py_min }}" == "13t" ]]; then
               export PATH="${PYTHON_313T_PATH}:$PATH"
+              # Force CMake to use our specific Python
               cmake -B build -S "../$(OCP_src)" -G Ninja \
                 -DCMAKE_BUILD_TYPE=Release \
                 -DCMAKE_OSX_SYSROOT=/opt/MacOSX10.15.sdk/ \
+                -DPython_EXECUTABLE="${PYTHON_313T_PATH}/python3" \
+                -DPython3_EXECUTABLE="${PYTHON_313T_PATH}/python3" \
                 -DPython_ROOT_DIR="${PYTHON_313T_ROOT}" \
                 -DPython3_ROOT_DIR="${PYTHON_313T_ROOT}" \
-                -DPython_EXECUTABLE="${PYTHON_313T_PATH}/python3"
+                -DPython_FIND_STRATEGY=LOCATION \
+                -DPython3_FIND_STRATEGY=LOCATION
             else
               micromamba activate cpp-py-bindgen
               cmake -B build -S "../$(OCP_src)" -G Ninja \
@@ -209,8 +217,12 @@ jobs:
               $env:PATH = "${env:PYTHON_313T_PATH};$env:PATH"
               cmake -B build -S "../$(OCP_src)" -G Ninja `
                 -DCMAKE_BUILD_TYPE=Release `
-                -DPython3_ROOT_DIR="${env:PYTHON_313T_ROOT}" `
+                -DPython_EXECUTABLE="${env:PYTHON_313T_PATH}\python.exe" `
                 -DPython3_EXECUTABLE="${env:PYTHON_313T_PATH}\python.exe" `
+                -DPython_ROOT_DIR="${env:PYTHON_313T_ROOT}" `
+                -DPython3_ROOT_DIR="${env:PYTHON_313T_ROOT}" `
+                -DPython_FIND_STRATEGY=LOCATION `
+                -DPython3_FIND_STRATEGY=LOCATION `
                 -DCMAKE_LINKER=lld-link.exe
             } else {
               micromamba run -n cpp-py-bindgen cmake -B build -S "../$(OCP_src)" -G Ninja `
