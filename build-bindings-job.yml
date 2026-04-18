@@ -6,10 +6,11 @@ parameters:
   py_maj: '3'
   py_min: '11'
   py_min_build:
-  - 10
-  - 11
-  - 12
-  - 13
+  - '13t'  # Add this line
+  - '10'
+  - '11'
+  - '12'
+  - '13'
   config_file: 'ocp.toml'
   conda_bld: '3.27.0'
   conda_env_file: 'environment.devenv.yml'
@@ -120,7 +121,13 @@ jobs:
         vmImage: ${{ parameters.vmImage_compile }}
 
     - bash: |
-        micromamba run mamba-devenv -f  ${{ parameters.conda_env_file }}
+        if [[ "$PYTHON_VERSION" == *"t" ]]; then
+          # Strip the 't' and add nogil build string selector
+          export PYTHON_VERSION_CLEAN="${PYTHON_VERSION%t}"
+          micromamba run mamba-devenv -f ${{ parameters.conda_env_file }}
+        else
+          micromamba run mamba-devenv -f ${{ parameters.conda_env_file }}
+        fi
       displayName: 'Prepare conda environment'
       env:
         PYTHON_VERSION: ${{ parameters.py_maj }}.${{ py_min }}
