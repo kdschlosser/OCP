@@ -123,8 +123,8 @@ jobs:
     # Download Python 3.13t for Linux
     - ${{ if and(eq(py_min, '13t'), contains(parameters.vmImage_compile, 'Ubuntu')) }}:
       - bash: |
-          wget https://github.com/indygreg/python-build-standalone/releases/download/20241016/cpython-3.13.0+freethreaded-x86_64-unknown-linux-gnu-install_only.tar.gz
-          tar -xzf cpython-3.13.0+freethreaded-x86_64-unknown-linux-gnu-install_only.tar.gz
+          wget -O python313t.tar.gz https://github.com/astral-sh/python-build-standalone/releases/download/20260408/cpython-3.13.13+20260408-x86_64_v2-unknown-linux-gnu-freethreaded-install_only_stripped.tar.gz
+          tar -xzf python313t.tar.gz
           echo "##vso[task.setvariable variable=PYTHON_313T_PATH]$PWD/python/bin"
           echo "##vso[task.setvariable variable=PYTHON_313T_ROOT]$PWD/python"
         displayName: 'Download Python 3.13t (Linux)'
@@ -132,8 +132,8 @@ jobs:
     # Download Python 3.13t for macOS
     - ${{ if and(eq(py_min, '13t'), contains(parameters.vmImage_compile, 'mac')) }}:
       - bash: |
-          curl -L -O https://github.com/indygreg/python-build-standalone/releases/download/20241016/cpython-3.13.0+freethreaded-aarch64-apple-darwin-install_only.tar.gz
-          tar -xzf cpython-3.13.0+freethreaded-aarch64-apple-darwin-install_only.tar.gz
+          curl -L -o python313t.tar.gz https://github.com/astral-sh/python-build-standalone/releases/download/20260408/cpython-3.13.13+20260408-aarch64-apple-darwin-freethreaded-install_only_stripped.tar.gz
+          tar -xzf python313t.tar.gz
           echo "##vso[task.setvariable variable=PYTHON_313T_PATH]$PWD/python/bin"
           echo "##vso[task.setvariable variable=PYTHON_313T_ROOT]$PWD/python"
         displayName: 'Download Python 3.13t (macOS)'
@@ -141,7 +141,7 @@ jobs:
     # Download Python 3.13t for Windows
     - ${{ if and(eq(py_min, '13t'), contains(parameters.vmImage_compile, 'win')) }}:
       - powershell: |
-          curl.exe -L -o python313t.tar.gz "https://github.com/indygreg/python-build-standalone/releases/download/20241016/cpython-3.13.0+freethreaded-x86_64-pc-windows-msvc-shared-install_only.tar.gz"
+          curl.exe -L -o python313t.tar.gz "https://github.com/astral-sh/python-build-standalone/releases/download/20260408/cpython-3.13.13+20260408-x86_64-pc-windows-msvc-freethreaded-install_only_stripped.tar.gz"
           tar -xzf python313t.tar.gz
           $pythonPath = Join-Path $PWD "python"
           echo "##vso[task.setvariable variable=PYTHON_313T_PATH]$pythonPath"
