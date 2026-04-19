@@ -120,122 +120,152 @@ jobs:
         mamba: 1.5
         vmImage: ${{ parameters.vmImage_compile }}
 
+    # Download Python 3.13t for Linux
+    - ${{ if and(eq(py_min, '13t'), contains(parameters.vmImage_compile, 'Ubuntu')) }}:
+      - bash: |
+          wget https://github.com/indygreg/python-build-standalone/releases/download/20241016/cpython-3.13.0+freethreaded-x86_64-unknown-linux-gnu-install_only.tar.gz
+          tar -xzf cpython-3.13.0+freethreaded-x86_64-unknown-linux-gnu-install_only.tar.gz
+          echo "##vso[task.setvariable variable=PYTHON_313T_PATH]$PWD/python/bin"
+          echo "##vso[task.setvariable variable=PYTHON_313T_ROOT]$PWD/python"
+        displayName: 'Download Python 3.13t (Linux)'
+
+    # Download Python 3.13t for macOS
+    - ${{ if and(eq(py_min, '13t'), contains(parameters.vmImage_compile, 'mac')) }}:
+      - bash: |
+          curl -L -O https://github.com/indygreg/python-build-standalone/releases/download/20241016/cpython-3.13.0+freethreaded-aarch64-apple-darwin-install_only.tar.gz
+          tar -xzf cpython-3.13.0+freethreaded-aarch64-apple-darwin-install_only.tar.gz
+          echo "##vso[task.setvariable variable=PYTHON_313T_PATH]$PWD/python/bin"
+          echo "##vso[task.setvariable variable=PYTHON_313T_ROOT]$PWD/python"
+        displayName: 'Download Python 3.13t (macOS)'
+
+    # Download Python 3.13t for Windows
+    - ${{ if and(eq(py_min, '13t'), contains(parameters.vmImage_compile, 'win')) }}:
+      - powershell: |
+          curl -L -o python313t.tar.gz "https://github.com/indygreg/python-build-standalone/releases/download/20241016/cpython-3.13.0+freethreaded-x86_64-pc-windows-msvc-shared-install_only.tar.gz"
+          tar -xzf python313t.tar.gz
+          $pythonPath = Join-Path $PWD "python"
+          echo "##vso[task.setvariable variable=PYTHON_313T_PATH]$pythonPath"
+          echo "##vso[task.setvariable variable=PYTHON_313T_ROOT]$pythonPath"
+        displayName: 'Download Python 3.13t (Windows)'
+
+    # Prepare conda environment
+    - ${{ if ne(py_min, '13t') }}:
+      - bash: |
+          micromamba run mamba-devenv -f  ${{ parameters.conda_env_file }}
+        displayName: 'Prepare conda environment'
+        env:
+          PYTHON_VERSION: ${{ parameters.py_maj }}.${{ py_min }}
+          STAGE: "compile"
+
     - ${{ if eq(py_min, '13t') }}:
-      # Linux
-      - ${{ if contains(parameters.vmImage_compile, 'Ubuntu') }}:
-        - bash: |
-            wget https://github.com/indygreg/python-build-standalone/releases/download/20241016/cpython-3.13.0%2Bfreethreaded-x86_64-unknown-linux-gnu-install_only.tar.gz
-            tar -xzf cpython-3.13.0+freethreaded-x86_64-unknown-linux-gnu-install_only.tar.gz
-            echo "##vso[task.setvariable variable=PYTHON_313T_PATH]$PWD/python/bin"
-            echo "##vso[task.setvariable variable=PYTHON_313T_ROOT]$PWD/python"
-          displayName: 'Download Python 3.13t (Linux)'
+      - bash: |
+          # Install Python deps via pip
+          ${PYTHON_313T_PATH}/python3 -m pip install --upgrade pip
+          ${PYTHON_313T_PATH}/python3 -m pip install "pybind11>=3.0.0"
+          
+          # Create conda env for C++ dependencies (without Python)
+          micromamba create -n cpp-py-bindgen -y -c conda-forge \
+            occt=7.9.3=all* fmt vtk tbb-devel cmake ninja
+        displayName: 'Prepare environment for Python 3.13t (Linux/macOS)'
+        condition: or(contains(variables['Agent.OS'], 'Linux'), contains(variables['Agent.OS'], 'Darwin'))
 
-      # macOS
-      - ${{ if contains(parameters.vmImage_compile, 'mac') }}:
-        - bash: |
-            curl -L -O https://github.com/indygreg/python-build-standalone/releases/download/20241016/cpython-3.13.0%2Bfreethreaded-aarch64-apple-darwin-install_only.tar.gz
-            tar -xzf cpython-3.13.0+freethreaded-aarch64-apple-darwin-install_only.tar.gz
-            echo "##vso[task.setvariable variable=PYTHON_313T_PATH]$PWD/python/bin"
-            echo "##vso[task.setvariable variable=PYTHON_313T_ROOT]$PWD/python"
-          displayName: 'Download Python 3.13t (macOS)'
+      - powershell: |
+          # Install Python deps via pip
+          & "${env:PYTHON_313T_PATH}\python.exe" -m pip install --upgrade pip
+          & "${env:PYTHON_313T_PATH}\python.exe" -m pip install "pybind11>=3.0.0"
+          
+          # Create conda env for C++ dependencies (without Python)
+          micromamba create -n cpp-py-bindgen -y -c conda-forge occt=7.9.3 fmt vtk tbb-devel cmake ninja
+        displayName: 'Prepare environment for Python 3.13t (Windows)'
+        condition: contains(variables['Agent.OS'], 'Windows_NT')
 
-      # Windows
-      - ${{ if contains(parameters.vmImage_compile, 'win') }}:
-        - powershell: |
-            Invoke-WebRequest -Uri "https://github.com/indygreg/python-build-standalone/releases/download/20241016/cpython-3.13.0%2Bfreethreaded-x86_64-pc-windows-msvc-shared-install_only.tar.gz" -OutFile "python313t.tar.gz"
-            tar -xzf python313t.tar.gz
-            echo "##vso[task.setvariable variable=PYTHON_313T_PATH]$PWD\python"
-            echo "##vso[task.setvariable variable=PYTHON_313T_ROOT]$PWD\python"
-          displayName: 'Download Python 3.13t (Windows)'
-
-
-    - ${{ if contains(parameters.vmImage_compile, 'win') }}:
-        - powershell: |
-            if ("${{ py_min }}" -eq "13t") {
-              $env:PATH = "${env:PYTHON_313T_PATH};$env:PATH"
-              & "${env:PYTHON_313T_PATH}\python.exe" -m pip install --upgrade pip
-              & "${env:PYTHON_313T_PATH}\python.exe" -m pip install "pybind11>=3.0.0" ninja cmake
-            
-              micromamba create -n cpp-py-bindgen -y -c conda-forge occt=7.9.3 fmt vtk tbb-devel
-            } else {
-              micromamba run mamba-devenv -f ${{ parameters.conda_env_file }}
-            }
-          displayName: 'Prepare conda environment (Windows)'
-          env:
-            PYTHON_VERSION: ${{ parameters.py_maj }}.${{ py_min }}
-            STAGE: "compile"
-
+    # Compile - Linux
     - ${{ if contains(parameters.vmImage_compile, 'Ubuntu') }}:
-        - bash: |
-            if [[ "${{ py_min }}" == "13t" ]]; then
-              export PATH="${PYTHON_313T_PATH}:$PATH"
-              # Force CMake to use our specific Python
-              cmake -B build -S "../$(OCP_src)" -G Ninja \
-                -DCMAKE_BUILD_TYPE=Release \
-                -DPython_EXECUTABLE="${PYTHON_313T_PATH}/python3" \
-                -DPython3_EXECUTABLE="${PYTHON_313T_PATH}/python3" \
-                -DPython_ROOT_DIR="${PYTHON_313T_ROOT}" \
-                -DPython3_ROOT_DIR="${PYTHON_313T_ROOT}" \
-                -DPython_FIND_STRATEGY=LOCATION \
-                -DPython3_FIND_STRATEGY=LOCATION
-            else
-              micromamba activate cpp-py-bindgen
-              cmake -B build -S "../$(OCP_src)" -G Ninja -DCMAKE_BUILD_TYPE=Release
-            fi
-            cmake --build build -j $(n_cores) -- -k 0
-            rm -rf build/CMakeFiles
-          displayName: 'Compile'
+      - bash: |
+          if [[ "${{ py_min }}" == "13t" ]]; then
+            # Activate conda for C++ libraries
+            eval "$(micromamba shell hook --shell bash)"
+            micromamba activate cpp-py-bindgen
+            
+            export PATH="${PYTHON_313T_PATH}:$PATH"
+            
+            cmake -B build -S "../$(OCP_src)" -G Ninja \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DPython_EXECUTABLE="${PYTHON_313T_PATH}/python3" \
+              -DPython3_EXECUTABLE="${PYTHON_313T_PATH}/python3" \
+              -DPython_ROOT_DIR="${PYTHON_313T_ROOT}" \
+              -DPython3_ROOT_DIR="${PYTHON_313T_ROOT}" \
+              -DPython_FIND_STRATEGY=LOCATION \
+              -DPython3_FIND_STRATEGY=LOCATION \
+              -DCMAKE_PREFIX_PATH="${CONDA_PREFIX}"
+          else
+            micromamba activate cpp-py-bindgen
+            micromamba list
+            cmake -B build -S "../$(OCP_src)" -G Ninja -DCMAKE_BUILD_TYPE=Release
+          fi
+          cmake --build build -j $(n_cores) -- -k 0
+          rm -rf build/CMakeFiles
+        displayName: 'Compile'
 
+    # Compile - macOS
     - ${{ if contains(parameters.vmImage_compile, 'mac') }}:
-        - bash: |
-            if [[ "${{ py_min }}" == "13t" ]]; then
-              export PATH="${PYTHON_313T_PATH}:$PATH"
-              # Force CMake to use our specific Python
-              cmake -B build -S "../$(OCP_src)" -G Ninja \
-                -DCMAKE_BUILD_TYPE=Release \
-                -DCMAKE_OSX_SYSROOT=/opt/MacOSX10.15.sdk/ \
-                -DPython_EXECUTABLE="${PYTHON_313T_PATH}/python3" \
-                -DPython3_EXECUTABLE="${PYTHON_313T_PATH}/python3" \
-                -DPython_ROOT_DIR="${PYTHON_313T_ROOT}" \
-                -DPython3_ROOT_DIR="${PYTHON_313T_ROOT}" \
-                -DPython_FIND_STRATEGY=LOCATION \
-                -DPython3_FIND_STRATEGY=LOCATION
-            else
-              micromamba activate cpp-py-bindgen
-              cmake -B build -S "../$(OCP_src)" -G Ninja \
-                -DCMAKE_BUILD_TYPE=Release \
-                -DCMAKE_OSX_SYSROOT=/opt/MacOSX10.15.sdk/
-            fi
-            cmake --build build -j $(n_cores) -- -k 0
-            rm -rf build/CMakeFiles
-          displayName: 'Compile'
+      - bash: |
+          if [[ "${{ py_min }}" == "13t" ]]; then
+            # Activate conda for C++ libraries
+            eval "$(micromamba shell hook --shell bash)"
+            micromamba activate cpp-py-bindgen
+            
+            export PATH="${PYTHON_313T_PATH}:$PATH"
+            
+            cmake -B build -S "../$(OCP_src)" -G Ninja \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DCMAKE_OSX_SYSROOT=/opt/MacOSX10.15.sdk/ \
+              -DPython_EXECUTABLE="${PYTHON_313T_PATH}/python3" \
+              -DPython3_EXECUTABLE="${PYTHON_313T_PATH}/python3" \
+              -DPython_ROOT_DIR="${PYTHON_313T_ROOT}" \
+              -DPython3_ROOT_DIR="${PYTHON_313T_ROOT}" \
+              -DPython_FIND_STRATEGY=LOCATION \
+              -DPython3_FIND_STRATEGY=LOCATION \
+              -DCMAKE_PREFIX_PATH="${CONDA_PREFIX}"
+          else
+            micromamba activate cpp-py-bindgen
+            cmake -B build -S "../$(OCP_src)" -G Ninja \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DCMAKE_OSX_SYSROOT=/opt/MacOSX10.15.sdk/
+          fi
+          cmake --build build -j $(n_cores) -- -k 0
+          rm -rf build/CMakeFiles
+        displayName: 'Compile'
 
-
+    # Compile - Windows
     - ${{ if contains(parameters.vmImage_compile, 'win') }}:
-        - powershell: |
-            if ("${{ py_min }}" -eq "13t") {
-              $env:PATH = "${env:PYTHON_313T_PATH};$env:PATH"
-              cmake -B build -S "../$(OCP_src)" -G Ninja `
-                -DCMAKE_BUILD_TYPE=Release `
-                -DPython_EXECUTABLE="${env:PYTHON_313T_PATH}\python.exe" `
-                -DPython3_EXECUTABLE="${env:PYTHON_313T_PATH}\python.exe" `
-                -DPython_ROOT_DIR="${env:PYTHON_313T_ROOT}" `
-                -DPython3_ROOT_DIR="${env:PYTHON_313T_ROOT}" `
-                -DPython_FIND_STRATEGY=LOCATION `
-                -DPython3_FIND_STRATEGY=LOCATION `
-                -DCMAKE_LINKER=lld-link.exe
-            } else {
-              micromamba run -n cpp-py-bindgen cmake -B build -S "../$(OCP_src)" -G Ninja `
-                -DCMAKE_BUILD_TYPE=Release `
-                -DPython3_FIND_STRATEGY=LOCATION `
-                -DPython3_ROOT_DIR=$env:CONDA_PREFIX `
-                -DCMAKE_LINKER=lld-link.exe
-            }
-            cmake --build build -j 1 -- -v -k 0
-            cmake -E rm -rf build\CMakeFiles
-          displayName: 'Compile (Windows)'
-          env:
-            CXX: "cl.exe"
+      - powershell: |
+          if ("${{ py_min }}" -eq "13t") {
+            micromamba activate cpp-py-bindgen
+            $env:PATH = "${env:PYTHON_313T_PATH};$env:PATH"
+            
+            cmake -B build -S "../$(OCP_src)" -G Ninja `
+              -DCMAKE_BUILD_TYPE=Release `
+              -DPython_EXECUTABLE="${env:PYTHON_313T_PATH}\python.exe" `
+              -DPython3_EXECUTABLE="${env:PYTHON_313T_PATH}\python.exe" `
+              -DPython_ROOT_DIR="${env:PYTHON_313T_ROOT}" `
+              -DPython3_ROOT_DIR="${env:PYTHON_313T_ROOT}" `
+              -DPython_FIND_STRATEGY=LOCATION `
+              -DPython3_FIND_STRATEGY=LOCATION `
+              -DCMAKE_PREFIX_PATH="${env:CONDA_PREFIX}" `
+              -DCMAKE_LINKER=lld-link.exe
+          } else {
+            micromamba run -n cpp-py-bindgen cmake -B build -S "../$(OCP_src)" -G Ninja `
+              -DCMAKE_BUILD_TYPE=Release `
+              -DPython3_FIND_STRATEGY=LOCATION `
+              -DPython3_ROOT_DIR=$env:CONDA_PREFIX `
+              -DCMAKE_LINKER=lld-link.exe
+          }
+          cmake --build build -j 1 -- -v -k 0
+          cmake -E rm -rf build\CMakeFiles
+        displayName: 'Compile'
+        env:
+          CXX: "cl.exe"
 
     - bash: |
         micromamba activate cpp-py-bindgen && \
@@ -245,6 +275,23 @@ jobs:
         cp -r "../../$(OCP_src)" ../upload && \
         cp -r OCP-stubs ../upload/
       displayName: 'Generate stubs and prepare for upload'
+      condition: ne('${{ py_min }}', '13t')
+
+    - bash: |
+        if [[ "${{ py_min }}" == "13t" ]]; then
+          eval "$(micromamba shell hook --shell bash)"
+          micromamba activate cpp-py-bindgen
+          export PATH="${PYTHON_313T_PATH}:$PATH"
+        else
+          micromamba activate cpp-py-bindgen
+        fi
+        cd build
+        python -m pybind11_stubgen -o . OCP
+        rm -rf OCP-stubs/setup.py OCP-stubs/__pycache__ OCP-stubs/MANIFEST.in
+        cp -r "../../$(OCP_src)" ../upload
+        cp -r OCP-stubs ../upload/
+      displayName: 'Generate stubs and prepare for upload'
+      condition: eq('${{ py_min }}', '13t')
 
     - task: PublishBuildArtifacts@1
       inputs:
@@ -263,13 +310,23 @@ jobs:
         cd build && \
         LD_DEBUG=libs python -c"import OCP"
       displayName: 'Test'
+      condition: ne('${{ py_min }}', '13t')
+
+    - bash: |
+        eval "$(micromamba shell hook --shell bash)"
+        micromamba activate cpp-py-bindgen
+        export PATH="${PYTHON_313T_PATH}:$PATH"
+        cd build
+        python -c"import OCP; import sys; print(f'Python: {sys.version}'); print(f'GIL enabled: {sys._is_gil_enabled()}')"
+      displayName: 'Test (Python 3.13t)'
+      condition: eq('${{ py_min }}', '13t')
 
     - bash: |
           micromamba create -n build -y -c conda-forge python=3.11 liblief=0.14.1 conda-build anaconda-client && \
           micromamba activate build && \
           conda build --token $TOKEN --user cadquery --label dev -c conda-forge --override-channels conda
       displayName: 'Build conda package'
-      condition: ne(variables['Build.Reason'], 'PullRequest')
+      condition: and(ne(variables['Build.Reason'], 'PullRequest'), ne('${{ py_min }}', '13t'))
       env:
         BUILD_STRING: "1"
         PYTHON_VERSION: ${{ parameters.py_maj }}.${{ py_min }}
@@ -280,7 +337,7 @@ jobs:
           micromamba activate build && \
           conda build -c conda-forge --override-channels conda
       displayName: 'Build conda package'
-      condition: eq(variables['Build.Reason'], 'PullRequest')
+      condition: and(eq(variables['Build.Reason'], 'PullRequest'), ne('${{ py_min }}', '13t'))
       env:
         BUILD_STRING: "1"
         PYTHON_VERSION: ${{ parameters.py_maj }}.${{ py_min }}
