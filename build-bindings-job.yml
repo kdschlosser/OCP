@@ -6,11 +6,11 @@ parameters:
   py_maj: '3'
   py_min: '11'
   py_min_build:
-  - '13t'  # Add this line
   - '10'
   - '11'
   - '12'
   - '13'
+  - '13t'
   config_file: 'ocp.toml'
   conda_bld: '3.27.0'
   conda_env_file: 'environment.devenv.yml'
@@ -121,6 +121,12 @@ jobs:
         vmImage: ${{ parameters.vmImage_compile }}
 
     # Download Python 3.13t for Linux
+    # When compiling for 3.13t we need to make sure that python 3.13t is available.
+    # to do that we are downloading a compiled binary of Python that is a run in place version.
+    # the stripped you see in the filename simply means there are no debugging files included.
+    # For macos we detect the CPU type that is being used and download the proper version for it.
+    # this makes the build script future proof if for some reason something upstream in the CI
+    # changes where the macos VM is actually run on apple silicon.
     - ${{ if and(eq(py_min, '13t'), contains(parameters.vmImage_compile, 'Ubuntu')) }}:
       - bash: |
           wget -O python313t.tar.gz https://github.com/astral-sh/python-build-standalone/releases/download/20260408/cpython-3.13.13+20260408-x86_64_v2-unknown-linux-gnu-freethreaded-install_only_stripped.tar.gz
@@ -155,6 +161,9 @@ jobs:
           echo "##vso[task.setvariable variable=PYTHON_313T_ROOT]$pythonPath"
         displayName: 'Download Python 3.13t (Windows)'
 
+    # we need to set up the environment a little bit differently when compiling using 3.13t
+    # this is due to having to use the downloaded Python and because conda-forge doesn't know
+    # about the installation we need to install the needed packages manually.
     # Prepare conda environment - regular Python
     - ${{ if ne(py_min, '13t') }}:
       - bash: |
@@ -190,6 +199,9 @@ jobs:
         displayName: 'Prepare environment for Python 3.13t (Windows)'
         condition: contains(variables['Agent.OS'], 'Windows_NT')
 
+
+    # when compiling once again special handling needs to take place. We need to tell cmake
+    # where the copy of Python is that we want to use.
     # Compile - Linux
     - ${{ if contains(parameters.vmImage_compile, 'Ubuntu') }}:
       - bash: |
@@ -300,17 +312,22 @@ jobs:
       displayName: 'Generate stubs and prepare for upload (regular Python)'
       condition: ne('${{ py_min }}', '13t')
 
+    # in order to generate the stubs we have to use the downloaded copy of Python
+    # that we compiled against. This is because the compiled extension module will
+    # not be found by any other python installation. We also set PYTHONPATH to point
+    # to the build directory so Python can find the compiled OCP module.
     # Generate stubs - Python 3.13t (Linux/macOS)
     - bash: |
         eval "$(micromamba shell hook --shell bash)"
         micromamba activate cpp-py-bindgen
         export PATH="${PYTHON_313T_PATH}:$PATH"
+        export PYTHONPATH="$PWD/build"
         cd build
         python -m pybind11_stubgen -o . OCP
         rm -rf OCP-stubs/setup.py OCP-stubs/__pycache__ OCP-stubs/MANIFEST.in
         cp -r "../../$(OCP_src)" ../upload
         cp -r OCP-stubs ../upload/
-      displayName: 'Generate stubs and prepare for upload (Python 3.13t)'
+      displayName: 'Generate stubs and prepare for upload (Python 3.13t Unix)'
       condition: and(eq('${{ py_min }}', '13t'), not(contains(variables['Agent.OS'], 'Windows_NT')))
 
     # Generate stubs - Python 3.13t (Windows)
@@ -318,6 +335,8 @@ jobs:
         micromamba shell hook -s powershell | Out-String | Invoke-Expression
         micromamba activate cpp-py-bindgen
         $env:PATH = "${env:PYTHON_313T_PATH};$env:PATH"
+        $buildPath = Join-Path $PWD "build"
+        $env:PYTHONPATH = $buildPath
         cd build
         python -m pybind11_stubgen -o . OCP
         Remove-Item -Recurse -Force OCP-stubs/setup.py -ErrorAction SilentlyContinue
@@ -340,7 +359,9 @@ jobs:
         artifactName: OCP_${{ parameters.platform }}
       displayName: 'Publish compilation result'
 
-    # Test - regular Python (Linux)
+    # Test is the same deal as before where we have to use the downloaded copy of Python.
+    # We must set PYTHONPATH so Python can find the compiled OCP module in the build directory.
+    # Test - regular Python (Linux only with LD_DEBUG)
     - bash: |
         micromamba activate cpp-py-bindgen && \
         cd build && \
@@ -348,29 +369,51 @@ jobs:
       displayName: 'Test (regular Python Linux)'
       condition: and(ne('${{ py_min }}', '13t'), contains(variables['Agent.OS'], 'Linux'))
 
-    # Test - regular Python (macOS/Windows)
+    # Test - regular Python (macOS)
     - bash: |
         micromamba activate cpp-py-bindgen && \
         cd build && \
         python -c"import OCP"
-      displayName: 'Test (regular Python)'
-      condition: and(ne('${{ py_min }}', '13t'), not(contains(variables['Agent.OS'], 'Linux')))
+      displayName: 'Test (regular Python macOS)'
+      condition: and(ne('${{ py_min }}', '13t'), contains(variables['Agent.OS'], 'Darwin'))
 
-    # Test - Python 3.13t (Linux/macOS)
+    # Test - regular Python (Windows)
+    - bash: |
+        micromamba activate cpp-py-bindgen && \
+        cd build && \
+        python -c"import OCP"
+      displayName: 'Test (regular Python Windows)'
+      condition: and(ne('${{ py_min }}', '13t'), contains(variables['Agent.OS'], 'Windows_NT'))
+
+    # Test - Python 3.13t (Linux)
     - bash: |
         eval "$(micromamba shell hook --shell bash)"
         micromamba activate cpp-py-bindgen
         export PATH="${PYTHON_313T_PATH}:$PATH"
+        export PYTHONPATH="$PWD/build"
         cd build
         python -c"import OCP; import sys; print(f'Python: {sys.version}'); print(f'GIL enabled: {sys._is_gil_enabled()}')"
-      displayName: 'Test (Python 3.13t)'
-      condition: and(eq('${{ py_min }}', '13t'), not(contains(variables['Agent.OS'], 'Windows_NT')))
+      displayName: 'Test (Python 3.13t Linux)'
+      condition: and(eq('${{ py_min }}', '13t'), contains(variables['Agent.OS'], 'Linux'))
+
+    # Test - Python 3.13t (macOS)
+    - bash: |
+        eval "$(micromamba shell hook --shell bash)"
+        micromamba activate cpp-py-bindgen
+        export PATH="${PYTHON_313T_PATH}:$PATH"
+        export PYTHONPATH="$PWD/build"
+        cd build
+        python -c"import OCP; import sys; print(f'Python: {sys.version}'); print(f'GIL enabled: {sys._is_gil_enabled()}')"
+      displayName: 'Test (Python 3.13t macOS)'
+      condition: and(eq('${{ py_min }}', '13t'), contains(variables['Agent.OS'], 'Darwin'))
 
     # Test - Python 3.13t (Windows)
     - powershell: |
         micromamba shell hook -s powershell | Out-String | Invoke-Expression
         micromamba activate cpp-py-bindgen
         $env:PATH = "${env:PYTHON_313T_PATH};$env:PATH"
+        $buildPath = Join-Path $PWD "build"
+        $env:PYTHONPATH = $buildPath
         cd build
         python -c "import OCP; import sys; print(f'Python: {sys.version}'); print(f'GIL enabled: {sys._is_gil_enabled()}')"
       displayName: 'Test (Python 3.13t Windows)'
