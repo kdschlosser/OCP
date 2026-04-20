@@ -120,223 +120,349 @@ jobs:
         mamba: 1.5
         vmImage: ${{ parameters.vmImage_compile }}
 
-    # Download Python 3.13t for Linux
-    - ${{ if and(eq(py_min, '13t'), contains(parameters.vmImage_compile, 'Ubuntu')) }}:
+    # Download standalone Python - Linux
+    - ${{ if contains(parameters.vmImage_compile, 'Ubuntu') }}:
       - bash: |
-          wget -O python313t.tar.gz https://github.com/astral-sh/python-build-standalone/releases/download/20260408/cpython-3.13.13+20260408-x86_64_v2-unknown-linux-gnu-freethreaded-install_only_stripped.tar.gz
-          tar -xzf python313t.tar.gz
-          echo "##vso[task.setvariable variable=PYTHON_313T_PATH]$PWD/python/bin"
-          echo "##vso[task.setvariable variable=PYTHON_313T_ROOT]$PWD/python"
-        displayName: 'Download Python 3.13t (Linux)'
+          # Determine Python version URL
+          if [[ "${{ py_min }}" == "13t" ]]; then
+            PYTHON_URL="https://github.com/astral-sh/python-build-standalone/releases/download/20260408/cpython-3.13.13+20260408-x86_64_v2-unknown-linux-gnu-freethreaded-install_only_stripped.tar.gz"
+            PYTHON_EXE="python3.13t"
+          elif [[ "${{ py_min }}" == "13" ]]; then
+            PYTHON_URL="https://github.com/astral-sh/python-build-standalone/releases/download/20260408/cpython-3.13.13+20260408-x86_64_v3-unknown-linux-gnu-install_only_stripped.tar.gz"
+            PYTHON_EXE="python3.13"
+          elif [[ "${{ py_min }}" == "12" ]]; then
+            PYTHON_URL="https://github.com/astral-sh/python-build-standalone/releases/download/20260408/cpython-3.12.9+20260408-x86_64_v3-unknown-linux-gnu-install_only_stripped.tar.gz"
+            PYTHON_EXE="python3.12"
+          elif [[ "${{ py_min }}" == "11" ]]; then
+            PYTHON_URL="https://github.com/astral-sh/python-build-standalone/releases/download/20260408/cpython-3.11.11+20260408-x86_64_v3-unknown-linux-gnu-install_only_stripped.tar.gz"
+            PYTHON_EXE="python3.11"
+          elif [[ "${{ py_min }}" == "10" ]]; then
+            PYTHON_URL="https://github.com/astral-sh/python-build-standalone/releases/download/20260408/cpython-3.10.16+20260408-x86_64_v3-unknown-linux-gnu-install_only_stripped.tar.gz"
+            PYTHON_EXE="python3.10"
+          fi
+          
+          echo "Downloading Python from: $PYTHON_URL"
+          wget -O python.tar.gz "$PYTHON_URL"
+          tar -xzf python.tar.gz
+          
+          echo "##vso[task.setvariable variable=PYTHON_PATH]$PWD/python/bin"
+          echo "##vso[task.setvariable variable=PYTHON_ROOT]$PWD/python"
+          echo "##vso[task.setvariable variable=PYTHON_EXE]$PYTHON_EXE"
+        displayName: 'Download Python ${{ parameters.py_maj }}.${{ py_min }} (Linux)'
 
-    # Download Python 3.13t for macOS - detect architecture
-    - ${{ if and(eq(py_min, '13t'), contains(parameters.vmImage_compile, 'mac')) }}:
+    # Download standalone Python - macOS
+    - ${{ if contains(parameters.vmImage_compile, 'mac') }}:
       - bash: |
           ARCH=$(uname -m)
-          if [[ "$ARCH" == "arm64" ]]; then
-            echo "Downloading Python 3.13t for Apple Silicon (aarch64)"
-            curl -L -o python313t.tar.gz https://github.com/astral-sh/python-build-standalone/releases/download/20260408/cpython-3.13.13+20260408-aarch64-apple-darwin-freethreaded-install_only_stripped.tar.gz
-          else
-            echo "Downloading Python 3.13t for Intel (x86_64)"
-            curl -L -o python313t.tar.gz https://github.com/astral-sh/python-build-standalone/releases/download/20260408/cpython-3.13.13+20260408-x86_64-apple-darwin-freethreaded-install_only_stripped.tar.gz
+          
+          # Determine Python version URL based on architecture
+          if [[ "${{ py_min }}" == "13t" ]]; then
+            if [[ "$ARCH" == "arm64" ]]; then
+              PYTHON_URL="https://github.com/astral-sh/python-build-standalone/releases/download/20260408/cpython-3.13.13+20260408-aarch64-apple-darwin-freethreaded-install_only_stripped.tar.gz"
+            else
+              PYTHON_URL="https://github.com/astral-sh/python-build-standalone/releases/download/20260408/cpython-3.13.13+20260408-x86_64-apple-darwin-freethreaded-install_only_stripped.tar.gz"
+            fi
+            PYTHON_EXE="python3.13t"
+          elif [[ "${{ py_min }}" == "13" ]]; then
+            if [[ "$ARCH" == "arm64" ]]; then
+              PYTHON_URL="https://github.com/astral-sh/python-build-standalone/releases/download/20260408/cpython-3.13.13+20260408-aarch64-apple-darwin-install_only_stripped.tar.gz"
+            else
+              PYTHON_URL="https://github.com/astral-sh/python-build-standalone/releases/download/20260408/cpython-3.13.13+20260408-x86_64-apple-darwin-install_only_stripped.tar.gz"
+            fi
+            PYTHON_EXE="python3.13"
+          elif [[ "${{ py_min }}" == "12" ]]; then
+            if [[ "$ARCH" == "arm64" ]]; then
+              PYTHON_URL="https://github.com/astral-sh/python-build-standalone/releases/download/20260408/cpython-3.12.9+20260408-aarch64-apple-darwin-install_only_stripped.tar.gz"
+            else
+              PYTHON_URL="https://github.com/astral-sh/python-build-standalone/releases/download/20260408/cpython-3.12.9+20260408-x86_64-apple-darwin-install_only_stripped.tar.gz"
+            fi
+            PYTHON_EXE="python3.12"
+          elif [[ "${{ py_min }}" == "11" ]]; then
+            if [[ "$ARCH" == "arm64" ]]; then
+              PYTHON_URL="https://github.com/astral-sh/python-build-standalone/releases/download/20260408/cpython-3.11.11+20260408-aarch64-apple-darwin-install_only_stripped.tar.gz"
+            else
+              PYTHON_URL="https://github.com/astral-sh/python-build-standalone/releases/download/20260408/cpython-3.11.11+20260408-x86_64-apple-darwin-install_only_stripped.tar.gz"
+            fi
+            PYTHON_EXE="python3.11"
+          elif [[ "${{ py_min }}" == "10" ]]; then
+            if [[ "$ARCH" == "arm64" ]]; then
+              PYTHON_URL="https://github.com/astral-sh/python-build-standalone/releases/download/20260408/cpython-3.10.16+20260408-aarch64-apple-darwin-install_only_stripped.tar.gz"
+            else
+              PYTHON_URL="https://github.com/astral-sh/python-build-standalone/releases/download/20260408/cpython-3.10.16+20260408-x86_64-apple-darwin-install_only_stripped.tar.gz"
+            fi
+            PYTHON_EXE="python3.10"
           fi
-          tar -xzf python313t.tar.gz
-          echo "##vso[task.setvariable variable=PYTHON_313T_PATH]$PWD/python/bin"
-          echo "##vso[task.setvariable variable=PYTHON_313T_ROOT]$PWD/python"
-        displayName: 'Download Python 3.13t (macOS)'
+          
+          echo "Architecture: $ARCH"
+          echo "Downloading Python from: $PYTHON_URL"
+          curl -L -o python.tar.gz "$PYTHON_URL"
+          tar -xzf python.tar.gz
+          
+          echo "##vso[task.setvariable variable=PYTHON_PATH]$PWD/python/bin"
+          echo "##vso[task.setvariable variable=PYTHON_ROOT]$PWD/python"
+          echo "##vso[task.setvariable variable=PYTHON_EXE]$PYTHON_EXE"
+        displayName: 'Download Python ${{ parameters.py_maj }}.${{ py_min }} (macOS)'
 
-    # Download Python 3.13t for Windows
-    - ${{ if and(eq(py_min, '13t'), contains(parameters.vmImage_compile, 'win')) }}:
+    # Download standalone Python - Windows
+    - ${{ if contains(parameters.vmImage_compile, 'win') }}:
       - powershell: |
-          curl.exe -L -o python313t.tar.gz "https://github.com/astral-sh/python-build-standalone/releases/download/20260408/cpython-3.13.13+20260408-x86_64-pc-windows-msvc-freethreaded-install_only_stripped.tar.gz"
-          tar -xzf python313t.tar.gz
+          # Determine Python version URL
+          $pyMin = "${{ py_min }}"
+          if ($pyMin -eq "13t") {
+            $pythonUrl = "https://github.com/astral-sh/python-build-standalone/releases/download/20260408/cpython-3.13.13+20260408-x86_64-pc-windows-msvc-freethreaded-install_only_stripped.tar.gz"
+            $pythonExe = "python3.13t.exe"
+          } elseif ($pyMin -eq "13") {
+            $pythonUrl = "https://github.com/astral-sh/python-build-standalone/releases/download/20260408/cpython-3.13.13+20260408-x86_64-pc-windows-msvc-install_only_stripped.tar.gz"
+            $pythonExe = "python3.13.exe"
+          } elseif ($pyMin -eq "12") {
+            $pythonUrl = "https://github.com/astral-sh/python-build-standalone/releases/download/20260408/cpython-3.12.9+20260408-x86_64-pc-windows-msvc-install_only_stripped.tar.gz"
+            $pythonExe = "python3.12.exe"
+          } elseif ($pyMin -eq "11") {
+            $pythonUrl = "https://github.com/astral-sh/python-build-standalone/releases/download/20260408/cpython-3.11.11+20260408-x86_64-pc-windows-msvc-install_only_stripped.tar.gz"
+            $pythonExe = "python3.11.exe"
+          } elseif ($pyMin -eq "10") {
+            $pythonUrl = "https://github.com/astral-sh/python-build-standalone/releases/download/20260408/cpython-3.10.16+20260408-x86_64-pc-windows-msvc-install_only_stripped.tar.gz"
+            $pythonExe = "python3.10.exe"
+          }
+          
+          Write-Host "Downloading Python from: $pythonUrl"
+          curl.exe -L -o python.tar.gz "$pythonUrl"
+          tar -xzf python.tar.gz
+          
           $pythonPath = Join-Path $PWD "python"
-          echo "##vso[task.setvariable variable=PYTHON_313T_PATH]$pythonPath"
-          echo "##vso[task.setvariable variable=PYTHON_313T_ROOT]$pythonPath"
-        displayName: 'Download Python 3.13t (Windows)'
+          echo "##vso[task.setvariable variable=PYTHON_PATH]$pythonPath"
+          echo "##vso[task.setvariable variable=PYTHON_ROOT]$pythonPath"
+          echo "##vso[task.setvariable variable=PYTHON_EXE]$pythonExe"
+        displayName: 'Download Python ${{ parameters.py_maj }}.${{ py_min }} (Windows)'
 
-    # Prepare conda environment - regular Python
-    - ${{ if ne(py_min, '13t') }}:
+    # Install Python packages via pip - Linux/macOS
+    - ${{ if not(contains(parameters.vmImage_compile, 'win')) }}:
       - bash: |
-          micromamba run mamba-devenv -f  ${{ parameters.conda_env_file }}
-        displayName: 'Prepare conda environment'
-        env:
-          PYTHON_VERSION: ${{ parameters.py_maj }}.${{ py_min }}
-          STAGE: "compile"
-
-    # Prepare environment for Python 3.13t - Linux/macOS
-    - ${{ if and(eq(py_min, '13t'), not(contains(parameters.vmImage_compile, 'win'))) }}:
-      - bash: |
-          # Install Python deps via pip using python3.13t executable
-          ${PYTHON_313T_PATH}/python3.13t -m pip install --upgrade pip
-          ${PYTHON_313T_PATH}/python3.13t -m pip install "pybind11>=3.0.0"
-          ${PYTHON_313T_PATH}/python3.13t -m pip install git+https://github.com/CadQuery/pybind11-stubgen.git
+          export PATH="${PYTHON_PATH}:$PATH"
           
-          # Create conda env for C++ dependencies (without Python)
-          micromamba create -n cpp-py-bindgen -y -c conda-forge \
-            occt=7.9.3=all* fmt vtk tbb-devel cmake ninja
-        displayName: 'Prepare environment for Python 3.13t (Linux/macOS)'
+          echo "Python executable: ${PYTHON_EXE}"
+          ${PYTHON_PATH}/${PYTHON_EXE} --version
+          
+          ${PYTHON_PATH}/${PYTHON_EXE} -m pip install --upgrade pip
+          ${PYTHON_PATH}/${PYTHON_EXE} -m pip install "pybind11>=3.0.0"
+          ${PYTHON_PATH}/${PYTHON_EXE} -m pip install pybind11-stubgen==2.5.1
+        displayName: 'Install Python packages (Unix)'
 
-    # Prepare environment for Python 3.13t - Windows
-    - ${{ if and(eq(py_min, '13t'), contains(parameters.vmImage_compile, 'win')) }}:
+    # Install Python packages via pip - Windows
+    - ${{ if contains(parameters.vmImage_compile, 'win') }}:
       - powershell: |
-          # Install Python deps via pip using python3.13t.exe executable
-          & "${env:PYTHON_313T_PATH}\python3.13t.exe" -m pip install --upgrade pip
-          & "${env:PYTHON_313T_PATH}\python3.13t.exe" -m pip install "pybind11>=3.0.0"
-          & "${env:PYTHON_313T_PATH}\python3.13t.exe" -m pip install git+https://github.com/CadQuery/pybind11-stubgen.git
+          $env:PATH = "${env:PYTHON_PATH};$env:PATH"
           
-          # Create conda env for C++ dependencies (without Python)
-          micromamba create -n cpp-py-bindgen -y -c conda-forge occt=7.9.3 fmt vtk tbb-devel cmake ninja
-        displayName: 'Prepare environment for Python 3.13t (Windows)'
+          Write-Host "Python executable: ${env:PYTHON_EXE}"
+          & "${env:PYTHON_PATH}\${env:PYTHON_EXE}" --version
+          
+          & "${env:PYTHON_PATH}\${env:PYTHON_EXE}" -m pip install --upgrade pip
+          & "${env:PYTHON_PATH}\${env:PYTHON_EXE}" -m pip install "pybind11>=3.0.0"
+          & "${env:PYTHON_PATH}\${env:PYTHON_EXE}" -m pip install pybind11-stubgen==2.5.1
+        displayName: 'Install Python packages (Windows)'
+
+    # Create conda env for C++ dependencies only - Linux/macOS
+    - ${{ if not(contains(parameters.vmImage_compile, 'win')) }}:
+      - bash: |
+          micromamba create -n cpp-libs -y -c conda-forge \
+            occt=7.9.3=all* fmt vtk tbb-devel cmake ninja
+        displayName: 'Setup C++ libraries (conda - Unix)'
+
+    # Create conda env for C++ dependencies only - Windows
+    - ${{ if contains(parameters.vmImage_compile, 'win') }}:
+      - powershell: |
+          micromamba create -n cpp-libs -y -c conda-forge occt=7.9.3 fmt vtk tbb-devel cmake ninja
+        displayName: 'Setup C++ libraries (conda - Windows)'
 
     # Compile - Linux
     - ${{ if contains(parameters.vmImage_compile, 'Ubuntu') }}:
       - bash: |
+          eval "$(micromamba shell hook --shell bash)"
+          micromamba activate cpp-libs
+          
+          export PATH="${PYTHON_PATH}:$PATH"
+          
+          echo "Python: ${PYTHON_EXE}"
+          ${PYTHON_PATH}/${PYTHON_EXE} --version
+          
+          PYBIND11_DIR=$(${PYTHON_PATH}/${PYTHON_EXE} -c "import pybind11; print(pybind11.get_cmake_dir())")
+          echo "pybind11 dir: ${PYBIND11_DIR}"
+          
+          CMAKE_CXX_FLAGS=""
           if [[ "${{ py_min }}" == "13t" ]]; then
-            eval "$(micromamba shell hook --shell bash)"
-            micromamba activate cpp-py-bindgen
-            
-            export PATH="${PYTHON_313T_PATH}:$PATH"
-            
-            # Use python3.13t executable
-            PYBIND11_DIR=$(${PYTHON_313T_PATH}/python3.13t -c "import pybind11; print(pybind11.get_cmake_dir())")
-            
-            cmake -B build -S "../$(OCP_src)" -G Ninja \
-              -DCMAKE_BUILD_TYPE=Release \
-              -DPython_EXECUTABLE="${PYTHON_313T_PATH}/python3.13t" \
-              -DPython3_EXECUTABLE="${PYTHON_313T_PATH}/python3.13t" \
-              -DPython_ROOT_DIR="${PYTHON_313T_ROOT}" \
-              -DPython3_ROOT_DIR="${PYTHON_313T_ROOT}" \
-              -DPython_FIND_STRATEGY=LOCATION \
-              -DPython3_FIND_STRATEGY=LOCATION \
-              -Dpybind11_DIR="${PYBIND11_DIR}" \
-              -DCMAKE_PREFIX_PATH="${CONDA_PREFIX}"
-          else
-            micromamba activate cpp-py-bindgen
-            micromamba list
-            cmake -B build -S "../$(OCP_src)" -G Ninja -DCMAKE_BUILD_TYPE=Release
+            CMAKE_CXX_FLAGS="-DOCP_REQUIRES_GIL=1"
           fi
+          
+          cmake -B build -S "../$(OCP_src)" -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DPython_EXECUTABLE="${PYTHON_PATH}/${PYTHON_EXE}" \
+            -DPython3_EXECUTABLE="${PYTHON_PATH}/${PYTHON_EXE}" \
+            -DPython_ROOT_DIR="${PYTHON_ROOT}" \
+            -DPython3_ROOT_DIR="${PYTHON_ROOT}" \
+            -DPython_FIND_STRATEGY=LOCATION \
+            -DPython3_FIND_STRATEGY=LOCATION \
+            -Dpybind11_DIR="${PYBIND11_DIR}" \
+            -DCMAKE_PREFIX_PATH="${CONDA_PREFIX}" \
+            -DCMAKE_CXX_FLAGS="${CMAKE_CXX_FLAGS}"
+          
           cmake --build build -j $(n_cores) -- -k 0
           rm -rf build/CMakeFiles
-        displayName: 'Compile'
+        displayName: 'Compile (Linux)'
 
     # Compile - macOS
     - ${{ if contains(parameters.vmImage_compile, 'mac') }}:
       - bash: |
+          eval "$(micromamba shell hook --shell bash)"
+          micromamba activate cpp-libs
+          
+          export PATH="${PYTHON_PATH}:$PATH"
+          
+          echo "Python: ${PYTHON_EXE}"
+          ${PYTHON_PATH}/${PYTHON_EXE} --version
+          
+          PYBIND11_DIR=$(${PYTHON_PATH}/${PYTHON_EXE} -c "import pybind11; print(pybind11.get_cmake_dir())")
+          echo "pybind11 dir: ${PYBIND11_DIR}"
+          
+          CMAKE_CXX_FLAGS=""
           if [[ "${{ py_min }}" == "13t" ]]; then
-            eval "$(micromamba shell hook --shell bash)"
-            micromamba activate cpp-py-bindgen
-            
-            export PATH="${PYTHON_313T_PATH}:$PATH"
-            
-            # Use python3.13t executable
-            PYBIND11_DIR=$(${PYTHON_313T_PATH}/python3.13t -c "import pybind11; print(pybind11.get_cmake_dir())")
-            
-            cmake -B build -S "../$(OCP_src)" -G Ninja \
-              -DCMAKE_BUILD_TYPE=Release \
-              -DCMAKE_OSX_SYSROOT=/opt/MacOSX10.15.sdk/ \
-              -DPython_EXECUTABLE="${PYTHON_313T_PATH}/python3.13t" \
-              -DPython3_EXECUTABLE="${PYTHON_313T_PATH}/python3.13t" \
-              -DPython_ROOT_DIR="${PYTHON_313T_ROOT}" \
-              -DPython3_ROOT_DIR="${PYTHON_313T_ROOT}" \
-              -DPython_FIND_STRATEGY=LOCATION \
-              -DPython3_FIND_STRATEGY=LOCATION \
-              -Dpybind11_DIR="${PYBIND11_DIR}" \
-              -DCMAKE_PREFIX_PATH="${CONDA_PREFIX}"
-          else
-            micromamba activate cpp-py-bindgen
-            cmake -B build -S "../$(OCP_src)" -G Ninja \
-              -DCMAKE_BUILD_TYPE=Release \
-              -DCMAKE_OSX_SYSROOT=/opt/MacOSX10.15.sdk/
+            CMAKE_CXX_FLAGS="-DOCP_REQUIRES_GIL=1"
           fi
+          
+          cmake -B build -S "../$(OCP_src)" -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_OSX_SYSROOT=/opt/MacOSX10.15.sdk/ \
+            -DPython_EXECUTABLE="${PYTHON_PATH}/${PYTHON_EXE}" \
+            -DPython3_EXECUTABLE="${PYTHON_PATH}/${PYTHON_EXE}" \
+            -DPython_ROOT_DIR="${PYTHON_ROOT}" \
+            -DPython3_ROOT_DIR="${PYTHON_ROOT}" \
+            -DPython_FIND_STRATEGY=LOCATION \
+            -DPython3_FIND_STRATEGY=LOCATION \
+            -Dpybind11_DIR="${PYBIND11_DIR}" \
+            -DCMAKE_PREFIX_PATH="${CONDA_PREFIX}" \
+            -DCMAKE_CXX_FLAGS="${CMAKE_CXX_FLAGS}"
+          
           cmake --build build -j $(n_cores) -- -k 0
           rm -rf build/CMakeFiles
-        displayName: 'Compile'
+        displayName: 'Compile (macOS)'
 
     # Compile - Windows
     - ${{ if contains(parameters.vmImage_compile, 'win') }}:
       - powershell: |
-          if ("${{ py_min }}" -eq "13t") {
-            micromamba shell hook -s powershell | Out-String | Invoke-Expression
-            micromamba activate cpp-py-bindgen
-            
-            $env:PATH = "${env:PYTHON_313T_PATH};$env:PATH"
-            
-            # Use python3.13t.exe executable
-            $PYBIND11_DIR = & "${env:PYTHON_313T_PATH}\python3.13t.exe" -c "import pybind11; print(pybind11.get_cmake_dir())"
-            
-            cmake -B build -S "../$(OCP_src)" -G Ninja `
-              -DCMAKE_BUILD_TYPE=Release `
-              -DPython_EXECUTABLE="${env:PYTHON_313T_PATH}\python3.13t.exe" `
-              -DPython3_EXECUTABLE="${env:PYTHON_313T_PATH}\python3.13t.exe" `
-              -DPython_ROOT_DIR="${env:PYTHON_313T_ROOT}" `
-              -DPython3_ROOT_DIR="${env:PYTHON_313T_ROOT}" `
-              -DPython_FIND_STRATEGY=LOCATION `
-              -DPython3_FIND_STRATEGY=LOCATION `
-              -Dpybind11_DIR="$PYBIND11_DIR" `
-              -DCMAKE_PREFIX_PATH="${env:CONDA_PREFIX}" `
-              -DCMAKE_LINKER=lld-link.exe
-            
-            cmake --build build -j 1 -- -v -k 0
-            cmake -E rm -rf build\CMakeFiles
-          } else {
-            micromamba run -n cpp-py-bindgen cmake -B build -S "../$(OCP_src)" -G Ninja `
-              -DCMAKE_BUILD_TYPE=Release `
-              -DPython3_FIND_STRATEGY=LOCATION `
-              -DPython3_ROOT_DIR=$env:CONDA_PREFIX `
-              -DCMAKE_LINKER=lld-link.exe
-            
-            micromamba run -n cpp-py-bindgen cmake --build build -j 1 -- -v -k 0
-            micromamba run -n cpp-py-bindgen cmake -E rm -rf build\CMakeFiles
+          micromamba shell hook -s powershell | Out-String | Invoke-Expression
+          micromamba activate cpp-libs
+          
+          $env:PATH = "${env:PYTHON_PATH};$env:PATH"
+          
+          Write-Host "Python: ${env:PYTHON_EXE}"
+          & "${env:PYTHON_PATH}\${env:PYTHON_EXE}" --version
+          
+          $PYBIND11_DIR = & "${env:PYTHON_PATH}\${env:PYTHON_EXE}" -c "import pybind11; print(pybind11.get_cmake_dir())"
+          Write-Host "pybind11 dir: $PYBIND11_DIR"
+          
+          # Remove any existing build directory
+          if (Test-Path build) {
+            Remove-Item -Recurse -Force build
           }
-        displayName: 'Compile'
+          
+          $CMAKE_CXX_FLAGS = ""
+          if ("${{ py_min }}" -eq "13t") {
+            $CMAKE_CXX_FLAGS = "/DOCP_REQUIRES_GIL=1"
+          }
+          
+          $cmakeArgs = @(
+            "-B", "build",
+            "-S", "..\$(OCP_src)",
+            "-G", "Ninja",
+            "-DCMAKE_BUILD_TYPE=Release",
+            "-DPython_EXECUTABLE=${env:PYTHON_PATH}\${env:PYTHON_EXE}",
+            "-DPython3_EXECUTABLE=${env:PYTHON_PATH}\${env:PYTHON_EXE}",
+            "-DPython_ROOT_DIR=${env:PYTHON_ROOT}",
+            "-DPython3_ROOT_DIR=${env:PYTHON_ROOT}",
+            "-DPython_FIND_STRATEGY=LOCATION",
+            "-DPython3_FIND_STRATEGY=LOCATION",
+            "-Dpybind11_DIR=$PYBIND11_DIR",
+            "-DCMAKE_PREFIX_PATH=${env:CONDA_PREFIX}",
+            "-DCMAKE_LINKER=lld-link.exe"
+          )
+          
+          if ($CMAKE_CXX_FLAGS -ne "") {
+            $cmakeArgs += "-DCMAKE_CXX_FLAGS=$CMAKE_CXX_FLAGS"
+          }
+          
+          & cmake @cmakeArgs
+          
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "CMake configuration failed!"
+            exit 1
+          }
+          
+          cmake --build build -j 1 -- -v -k 0
+          
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "CMake build failed!"
+            exit 1
+          }
+          
+          cmake -E rm -rf build\CMakeFiles
+        displayName: 'Compile (Windows)'
 
-    # Generate stubs - regular Python
-    - bash: |
-        micromamba activate cpp-py-bindgen && \
-        cd build && \
-        python -m pybind11_stubgen -o . OCP && \
-        rm -rf OCP-stubs/setup.py OCP-stubs/__pycache__ OCP-stubs/MANIFEST.in && \
-        mkdir -p ../upload && \
-        cp -r "../../$(OCP_src)" ../upload && \
-        cp -r OCP-stubs ../upload/
-      displayName: 'Generate stubs and prepare for upload (regular Python)'
-      condition: ne('${{ py_min }}', '13t')
+    # Generate stubs - Linux/macOS
+    - ${{ if not(contains(parameters.vmImage_compile, 'win')) }}:
+      - bash: |
+          eval "$(micromamba shell hook --shell bash)"
+          micromamba activate cpp-libs
+          
+          export PATH="${PYTHON_PATH}:$PATH"
+          export PYTHONPATH="$PWD/build"
+          cd build
+          
+          # Debug: Check if OCP module exists
+          ls -la *.so 2>/dev/null || echo "No .so files found"
+          
+          # Generate stubs
+          GIL_FLAG=""
+          if [[ "${{ py_min }}" == "13t" ]]; then
+            GIL_FLAG="-Xgil=1"
+          fi
+          
+          ${PYTHON_PATH}/${PYTHON_EXE} ${GIL_FLAG} -m pybind11_stubgen -o . OCP
+          
+          rm -rf OCP-stubs/setup.py OCP-stubs/__pycache__ OCP-stubs/MANIFEST.in
+          mkdir -p ../upload
+          cp -r "../../$(OCP_src)" ../upload
+          cp -r OCP-stubs ../upload/
+        displayName: 'Generate stubs and prepare for upload (Unix)'
 
-    # Generate stubs - Python 3.13t (Linux/macOS)
-    - bash: |
-        eval "$(micromamba shell hook --shell bash)"
-        micromamba activate cpp-py-bindgen
-        export PATH="${PYTHON_313T_PATH}:$PATH"
-        export PYTHONPATH="$PWD/build"
-        cd build
-        # Use python3.13t executable
-        ${PYTHON_313T_PATH}/python3.13t -m pybind11_stubgen -o . OCP
-        rm -rf OCP-stubs/setup.py OCP-stubs/__pycache__ OCP-stubs/MANIFEST.in
-        mkdir -p ../upload
-        cp -r "../../$(OCP_src)" ../upload
-        cp -r OCP-stubs ../upload/
-      displayName: 'Generate stubs and prepare for upload (Python 3.13t Unix)'
-      condition: and(eq('${{ py_min }}', '13t'), not(contains(variables['Agent.OS'], 'Windows_NT')))
-
-    # Generate stubs - Python 3.13t (Windows)
-    - powershell: |
-        micromamba shell hook -s powershell | Out-String | Invoke-Expression
-        micromamba activate cpp-py-bindgen
-        $env:PATH = "${env:PYTHON_313T_PATH};$env:PATH"
-        $buildPath = Join-Path $PWD "build"
-        $env:PYTHONPATH = $buildPath
-        cd build
-        # Use python3.13t.exe executable
-        & "${env:PYTHON_313T_PATH}\python3.13t.exe" -m pybind11_stubgen -o . OCP
-        Remove-Item -Recurse -Force OCP-stubs/setup.py -ErrorAction SilentlyContinue
-        Remove-Item -Recurse -Force OCP-stubs/__pycache__ -ErrorAction SilentlyContinue
-        Remove-Item -Recurse -Force OCP-stubs/MANIFEST.in -ErrorAction SilentlyContinue
-        New-Item -ItemType Directory -Force -Path ../upload
-        Copy-Item -Recurse "../../$(OCP_src)" ../upload
-        Copy-Item -Recurse OCP-stubs ../upload/
-      displayName: 'Generate stubs and prepare for upload (Python 3.13t Windows)'
-      condition: and(eq('${{ py_min }}', '13t'), contains(variables['Agent.OS'], 'Windows_NT'))
+    # Generate stubs - Windows
+    - ${{ if contains(parameters.vmImage_compile, 'win') }}:
+      - powershell: |
+          micromamba shell hook -s powershell | Out-String | Invoke-Expression
+          micromamba activate cpp-libs
+          
+          $env:PATH = "${env:PYTHON_PATH};$env:PATH"
+          $buildPath = Join-Path $PWD "build"
+          $env:PYTHONPATH = $buildPath
+          cd build
+          
+          # Debug: Check if OCP module exists
+          Get-ChildItem *.pyd -ErrorAction SilentlyContinue
+          
+          # Generate stubs
+          $gilFlag = @()
+          if ("${{ py_min }}" -eq "13t") {
+            $gilFlag = @("-Xgil=1")
+          }
+          
+          $stubgenArgs = $gilFlag + @("-m", "pybind11_stubgen", "-o", ".", "OCP")
+          & "${env:PYTHON_PATH}\${env:PYTHON_EXE}" @stubgenArgs
+          
+          Remove-Item -Recurse -Force OCP-stubs/setup.py -ErrorAction SilentlyContinue
+          Remove-Item -Recurse -Force OCP-stubs/__pycache__ -ErrorAction SilentlyContinue
+          Remove-Item -Recurse -Force OCP-stubs/MANIFEST.in -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path ../upload
+          Copy-Item -Recurse "../../$(OCP_src)" ../upload
+          Copy-Item -Recurse OCP-stubs ../upload/
+        displayName: 'Generate stubs and prepare for upload (Windows)'
 
     - task: PublishBuildArtifacts@1
       inputs:
@@ -350,66 +476,57 @@ jobs:
         artifactName: OCP_${{ parameters.platform }}_py${{ py_min }}
       displayName: 'Publish compilation result'
 
-    # Test - regular Python (Linux with LD_DEBUG)
-    - bash: |
-        micromamba activate cpp-py-bindgen && \
-        cd build && \
-        LD_DEBUG=libs python -c"import OCP"
-      displayName: 'Test (regular Python Linux)'
-      condition: and(ne('${{ py_min }}', '13t'), contains(variables['Agent.OS'], 'Linux'))
+    # Test - Linux
+    - ${{ if contains(parameters.vmImage_compile, 'Ubuntu') }}:
+      - bash: |
+          eval "$(micromamba shell hook --shell bash)"
+          micromamba activate cpp-libs
+          
+          export PATH="${PYTHON_PATH}:$PATH"
+          export PYTHONPATH="$PWD/build"
+          cd build
+          
+          if [[ "${{ py_min }}" == "13t" ]]; then
+            LD_DEBUG=libs ${PYTHON_PATH}/${PYTHON_EXE} -Xgil=1 -c"import OCP; import sys; print(f'Python: {sys.version}'); print(f'GIL enabled: {sys._is_gil_enabled()}')"
+          else
+            LD_DEBUG=libs ${PYTHON_PATH}/${PYTHON_EXE} -c"import OCP; import sys; print(f'Python: {sys.version}')"
+          fi
+        displayName: 'Test (Linux)'
 
-    # Test - regular Python (macOS)
-    - bash: |
-        micromamba activate cpp-py-bindgen && \
-        cd build && \
-        python -c"import OCP"
-      displayName: 'Test (regular Python macOS)'
-      condition: and(ne('${{ py_min }}', '13t'), contains(variables['Agent.OS'], 'Darwin'))
+    # Test - macOS
+    - ${{ if contains(parameters.vmImage_compile, 'mac') }}:
+      - bash: |
+          eval "$(micromamba shell hook --shell bash)"
+          micromamba activate cpp-libs
+          
+          export PATH="${PYTHON_PATH}:$PATH"
+          export PYTHONPATH="$PWD/build"
+          cd build
+          
+          if [[ "${{ py_min }}" == "13t" ]]; then
+            ${PYTHON_PATH}/${PYTHON_EXE} -Xgil=1 -c"import OCP; import sys; print(f'Python: {sys.version}'); print(f'GIL enabled: {sys._is_gil_enabled()}')"
+          else
+            ${PYTHON_PATH}/${PYTHON_EXE} -c"import OCP; import sys; print(f'Python: {sys.version}')"
+          fi
+        displayName: 'Test (macOS)'
 
-    # Test - regular Python (Windows)
-    - bash: |
-        micromamba activate cpp-py-bindgen && \
-        cd build && \
-        python -c"import OCP"
-      displayName: 'Test (regular Python Windows)'
-      condition: and(ne('${{ py_min }}', '13t'), contains(variables['Agent.OS'], 'Windows_NT'))
-
-    # Test - Python 3.13t (Linux)
-    - bash: |
-        eval "$(micromamba shell hook --shell bash)"
-        micromamba activate cpp-py-bindgen
-        export PATH="${PYTHON_313T_PATH}:$PATH"
-        export PYTHONPATH="$PWD/build"
-        cd build
-        # Use python3.13t executable
-        ${PYTHON_313T_PATH}/python3.13t -c"import OCP; import sys; print(f'Python: {sys.version}'); print(f'GIL enabled: {sys._is_gil_enabled()}')"
-      displayName: 'Test (Python 3.13t Linux)'
-      condition: and(eq('${{ py_min }}', '13t'), contains(variables['Agent.OS'], 'Linux'))
-
-    # Test - Python 3.13t (macOS)
-    - bash: |
-        eval "$(micromamba shell hook --shell bash)"
-        micromamba activate cpp-py-bindgen
-        export PATH="${PYTHON_313T_PATH}:$PATH"
-        export PYTHONPATH="$PWD/build"
-        cd build
-        # Use python3.13t executable
-        ${PYTHON_313T_PATH}/python3.13t -c"import OCP; import sys; print(f'Python: {sys.version}'); print(f'GIL enabled: {sys._is_gil_enabled()}')"
-      displayName: 'Test (Python 3.13t macOS)'
-      condition: and(eq('${{ py_min }}', '13t'), contains(variables['Agent.OS'], 'Darwin'))
-
-    # Test - Python 3.13t (Windows)
-    - powershell: |
-        micromamba shell hook -s powershell | Out-String | Invoke-Expression
-        micromamba activate cpp-py-bindgen
-        $env:PATH = "${env:PYTHON_313T_PATH};$env:PATH"
-        $buildPath = Join-Path $PWD "build"
-        $env:PYTHONPATH = $buildPath
-        cd build
-        # Use python3.13t.exe executable
-        & "${env:PYTHON_313T_PATH}\python3.13t.exe" -c "import OCP; import sys; print(f'Python: {sys.version}'); print(f'GIL enabled: {sys._is_gil_enabled()}')"
-      displayName: 'Test (Python 3.13t Windows)'
-      condition: and(eq('${{ py_min }}', '13t'), contains(variables['Agent.OS'], 'Windows_NT'))
+    # Test - Windows
+    - ${{ if contains(parameters.vmImage_compile, 'win') }}:
+      - powershell: |
+          micromamba shell hook -s powershell | Out-String | Invoke-Expression
+          micromamba activate cpp-libs
+          
+          $env:PATH = "${env:PYTHON_PATH};$env:PATH"
+          $buildPath = Join-Path $PWD "build"
+          $env:PYTHONPATH = $buildPath
+          cd build
+          
+          if ("${{ py_min }}" -eq "13t") {
+            & "${env:PYTHON_PATH}\${env:PYTHON_EXE}" -Xgil=1 -c "import OCP; import sys; print(f'Python: {sys.version}'); print(f'GIL enabled: {sys._is_gil_enabled()}')"
+          } else {
+            & "${env:PYTHON_PATH}\${env:PYTHON_EXE}" -c "import OCP; import sys; print(f'Python: {sys.version}')"
+          }
+        displayName: 'Test (Windows)'
 
     # Build conda package - non-PR, regular Python
     - bash: |
