@@ -64,7 +64,7 @@ jobs:
     displayName: 'Read output dir from the config file'
     name: 'conf'
 
-  
+
   - ${{ if contains(parameters.platform, 'Windows') }}:
     - bash: |
         micromamba create --yes --platform win-64 --no-deps --prefix ./occt  occt=7.9.0 && \ 
@@ -121,12 +121,6 @@ jobs:
         vmImage: ${{ parameters.vmImage_compile }}
 
     # Download Python 3.13t for Linux
-    # When compiling for 3.13t we need to make sure that python 3.13t is available.
-    # to do that we are downloading a compiled binary of Python that is a run in place version.
-    # the stripped you see in the filename simply means there are no debugging files included.
-    # For macos we detect the CPU type that is being used and download the proper version for it.
-    # this makes the build script future proof if for some reason something upstream in the CI
-    # changes where the macos VM is actually run on apple silicon.
     - ${{ if and(eq(py_min, '13t'), contains(parameters.vmImage_compile, 'Ubuntu')) }}:
       - bash: |
           wget -O python313t.tar.gz https://github.com/astral-sh/python-build-standalone/releases/download/20260408/cpython-3.13.13+20260408-x86_64_v2-unknown-linux-gnu-freethreaded-install_only_stripped.tar.gz
@@ -161,9 +155,6 @@ jobs:
           echo "##vso[task.setvariable variable=PYTHON_313T_ROOT]$pythonPath"
         displayName: 'Download Python 3.13t (Windows)'
 
-    # we need to set up the environment a little bit differently when compiling using 3.13t
-    # this is due to having to use the downloaded Python and because conda-forge doesn't know
-    # about the installation we need to install the needed packages manually.
     # Prepare conda environment - regular Python
     - ${{ if ne(py_min, '13t') }}:
       - bash: |
@@ -174,34 +165,30 @@ jobs:
           STAGE: "compile"
 
     # Prepare environment for Python 3.13t - Linux/macOS
-    - ${{ if eq(py_min, '13t') }}:
+    - ${{ if and(eq(py_min, '13t'), not(contains(parameters.vmImage_compile, 'win'))) }}:
       - bash: |
-          # Install Python deps via pip
-          ${PYTHON_313T_PATH}/python3 -m pip install --upgrade pip
-          ${PYTHON_313T_PATH}/python3 -m pip install "pybind11>=3.0.0"
-          ${PYTHON_313T_PATH}/python3 -m pip install git+https://github.com/CadQuery/pybind11-stubgen.git
+          # Install Python deps via pip using python3.13t executable
+          ${PYTHON_313T_PATH}/python3.13t -m pip install --upgrade pip
+          ${PYTHON_313T_PATH}/python3.13t -m pip install "pybind11>=3.0.0"
+          ${PYTHON_313T_PATH}/python3.13t -m pip install git+https://github.com/CadQuery/pybind11-stubgen.git
           
           # Create conda env for C++ dependencies (without Python)
           micromamba create -n cpp-py-bindgen -y -c conda-forge \
             occt=7.9.3=all* fmt vtk tbb-devel cmake ninja
         displayName: 'Prepare environment for Python 3.13t (Linux/macOS)'
-        condition: or(contains(variables['Agent.OS'], 'Linux'), contains(variables['Agent.OS'], 'Darwin'))
 
-      # Prepare environment for Python 3.13t - Windows
+    # Prepare environment for Python 3.13t - Windows
+    - ${{ if and(eq(py_min, '13t'), contains(parameters.vmImage_compile, 'win')) }}:
       - powershell: |
-          # Install Python deps via pip
-          & "${env:PYTHON_313T_PATH}\python.exe" -m pip install --upgrade pip
-          & "${env:PYTHON_313T_PATH}\python.exe" -m pip install "pybind11>=3.0.0"
-          & "${env:PYTHON_313T_PATH}\python.exe" -m pip install git+https://github.com/CadQuery/pybind11-stubgen.git
+          # Install Python deps via pip using python3.13t.exe executable
+          & "${env:PYTHON_313T_PATH}\python3.13t.exe" -m pip install --upgrade pip
+          & "${env:PYTHON_313T_PATH}\python3.13t.exe" -m pip install "pybind11>=3.0.0"
+          & "${env:PYTHON_313T_PATH}\python3.13t.exe" -m pip install git+https://github.com/CadQuery/pybind11-stubgen.git
           
           # Create conda env for C++ dependencies (without Python)
           micromamba create -n cpp-py-bindgen -y -c conda-forge occt=7.9.3 fmt vtk tbb-devel cmake ninja
         displayName: 'Prepare environment for Python 3.13t (Windows)'
-        condition: contains(variables['Agent.OS'], 'Windows_NT')
 
-
-    # when compiling once again special handling needs to take place. We need to tell cmake
-    # where the copy of Python is that we want to use.
     # Compile - Linux
     - ${{ if contains(parameters.vmImage_compile, 'Ubuntu') }}:
       - bash: |
@@ -211,12 +198,13 @@ jobs:
             
             export PATH="${PYTHON_313T_PATH}:$PATH"
             
-            PYBIND11_DIR=$(${PYTHON_313T_PATH}/python3 -c "import pybind11; print(pybind11.get_cmake_dir())")
+            # Use python3.13t executable
+            PYBIND11_DIR=$(${PYTHON_313T_PATH}/python3.13t -c "import pybind11; print(pybind11.get_cmake_dir())")
             
             cmake -B build -S "../$(OCP_src)" -G Ninja \
               -DCMAKE_BUILD_TYPE=Release \
-              -DPython_EXECUTABLE="${PYTHON_313T_PATH}/python3" \
-              -DPython3_EXECUTABLE="${PYTHON_313T_PATH}/python3" \
+              -DPython_EXECUTABLE="${PYTHON_313T_PATH}/python3.13t" \
+              -DPython3_EXECUTABLE="${PYTHON_313T_PATH}/python3.13t" \
               -DPython_ROOT_DIR="${PYTHON_313T_ROOT}" \
               -DPython3_ROOT_DIR="${PYTHON_313T_ROOT}" \
               -DPython_FIND_STRATEGY=LOCATION \
@@ -241,13 +229,14 @@ jobs:
             
             export PATH="${PYTHON_313T_PATH}:$PATH"
             
-            PYBIND11_DIR=$(${PYTHON_313T_PATH}/python3 -c "import pybind11; print(pybind11.get_cmake_dir())")
+            # Use python3.13t executable
+            PYBIND11_DIR=$(${PYTHON_313T_PATH}/python3.13t -c "import pybind11; print(pybind11.get_cmake_dir())")
             
             cmake -B build -S "../$(OCP_src)" -G Ninja \
               -DCMAKE_BUILD_TYPE=Release \
               -DCMAKE_OSX_SYSROOT=/opt/MacOSX10.15.sdk/ \
-              -DPython_EXECUTABLE="${PYTHON_313T_PATH}/python3" \
-              -DPython3_EXECUTABLE="${PYTHON_313T_PATH}/python3" \
+              -DPython_EXECUTABLE="${PYTHON_313T_PATH}/python3.13t" \
+              -DPython3_EXECUTABLE="${PYTHON_313T_PATH}/python3.13t" \
               -DPython_ROOT_DIR="${PYTHON_313T_ROOT}" \
               -DPython3_ROOT_DIR="${PYTHON_313T_ROOT}" \
               -DPython_FIND_STRATEGY=LOCATION \
@@ -273,12 +262,13 @@ jobs:
             
             $env:PATH = "${env:PYTHON_313T_PATH};$env:PATH"
             
-            $PYBIND11_DIR = & "${env:PYTHON_313T_PATH}\python.exe" -c "import pybind11; print(pybind11.get_cmake_dir())"
+            # Use python3.13t.exe executable
+            $PYBIND11_DIR = & "${env:PYTHON_313T_PATH}\python3.13t.exe" -c "import pybind11; print(pybind11.get_cmake_dir())"
             
             cmake -B build -S "../$(OCP_src)" -G Ninja `
               -DCMAKE_BUILD_TYPE=Release `
-              -DPython_EXECUTABLE="${env:PYTHON_313T_PATH}\python.exe" `
-              -DPython3_EXECUTABLE="${env:PYTHON_313T_PATH}\python.exe" `
+              -DPython_EXECUTABLE="${env:PYTHON_313T_PATH}\python3.13t.exe" `
+              -DPython3_EXECUTABLE="${env:PYTHON_313T_PATH}\python3.13t.exe" `
               -DPython_ROOT_DIR="${env:PYTHON_313T_ROOT}" `
               -DPython3_ROOT_DIR="${env:PYTHON_313T_ROOT}" `
               -DPython_FIND_STRATEGY=LOCATION `
@@ -307,15 +297,12 @@ jobs:
         cd build && \
         python -m pybind11_stubgen -o . OCP && \
         rm -rf OCP-stubs/setup.py OCP-stubs/__pycache__ OCP-stubs/MANIFEST.in && \
+        mkdir -p ../upload && \
         cp -r "../../$(OCP_src)" ../upload && \
         cp -r OCP-stubs ../upload/
       displayName: 'Generate stubs and prepare for upload (regular Python)'
       condition: ne('${{ py_min }}', '13t')
 
-    # in order to generate the stubs we have to use the downloaded copy of Python
-    # that we compiled against. This is because the compiled extension module will
-    # not be found by any other python installation. We also set PYTHONPATH to point
-    # to the build directory so Python can find the compiled OCP module.
     # Generate stubs - Python 3.13t (Linux/macOS)
     - bash: |
         eval "$(micromamba shell hook --shell bash)"
@@ -323,8 +310,10 @@ jobs:
         export PATH="${PYTHON_313T_PATH}:$PATH"
         export PYTHONPATH="$PWD/build"
         cd build
-        python -m pybind11_stubgen -o . OCP
+        # Use python3.13t executable
+        ${PYTHON_313T_PATH}/python3.13t -m pybind11_stubgen -o . OCP
         rm -rf OCP-stubs/setup.py OCP-stubs/__pycache__ OCP-stubs/MANIFEST.in
+        mkdir -p ../upload
         cp -r "../../$(OCP_src)" ../upload
         cp -r OCP-stubs ../upload/
       displayName: 'Generate stubs and prepare for upload (Python 3.13t Unix)'
@@ -338,10 +327,12 @@ jobs:
         $buildPath = Join-Path $PWD "build"
         $env:PYTHONPATH = $buildPath
         cd build
-        python -m pybind11_stubgen -o . OCP
+        # Use python3.13t.exe executable
+        & "${env:PYTHON_313T_PATH}\python3.13t.exe" -m pybind11_stubgen -o . OCP
         Remove-Item -Recurse -Force OCP-stubs/setup.py -ErrorAction SilentlyContinue
         Remove-Item -Recurse -Force OCP-stubs/__pycache__ -ErrorAction SilentlyContinue
         Remove-Item -Recurse -Force OCP-stubs/MANIFEST.in -ErrorAction SilentlyContinue
+        New-Item -ItemType Directory -Force -Path ../upload
         Copy-Item -Recurse "../../$(OCP_src)" ../upload
         Copy-Item -Recurse OCP-stubs ../upload/
       displayName: 'Generate stubs and prepare for upload (Python 3.13t Windows)'
@@ -350,18 +341,16 @@ jobs:
     - task: PublishBuildArtifacts@1
       inputs:
         pathtoPublish: 'upload'
-        artifactName: OCP_src_stubs_${{ parameters.platform }}
+        artifactName: OCP_src_stubs_${{ parameters.platform }}_py${{ py_min }}
       displayName: 'Publish stubs and sources together'
 
     - task: PublishBuildArtifacts@1
       inputs:
         pathtoPublish: 'build'
-        artifactName: OCP_${{ parameters.platform }}
+        artifactName: OCP_${{ parameters.platform }}_py${{ py_min }}
       displayName: 'Publish compilation result'
 
-    # Test is the same deal as before where we have to use the downloaded copy of Python.
-    # We must set PYTHONPATH so Python can find the compiled OCP module in the build directory.
-    # Test - regular Python (Linux only with LD_DEBUG)
+    # Test - regular Python (Linux with LD_DEBUG)
     - bash: |
         micromamba activate cpp-py-bindgen && \
         cd build && \
@@ -392,7 +381,8 @@ jobs:
         export PATH="${PYTHON_313T_PATH}:$PATH"
         export PYTHONPATH="$PWD/build"
         cd build
-        python -c"import OCP; import sys; print(f'Python: {sys.version}'); print(f'GIL enabled: {sys._is_gil_enabled()}')"
+        # Use python3.13t executable
+        ${PYTHON_313T_PATH}/python3.13t -c"import OCP; import sys; print(f'Python: {sys.version}'); print(f'GIL enabled: {sys._is_gil_enabled()}')"
       displayName: 'Test (Python 3.13t Linux)'
       condition: and(eq('${{ py_min }}', '13t'), contains(variables['Agent.OS'], 'Linux'))
 
@@ -403,7 +393,8 @@ jobs:
         export PATH="${PYTHON_313T_PATH}:$PATH"
         export PYTHONPATH="$PWD/build"
         cd build
-        python -c"import OCP; import sys; print(f'Python: {sys.version}'); print(f'GIL enabled: {sys._is_gil_enabled()}')"
+        # Use python3.13t executable
+        ${PYTHON_313T_PATH}/python3.13t -c"import OCP; import sys; print(f'Python: {sys.version}'); print(f'GIL enabled: {sys._is_gil_enabled()}')"
       displayName: 'Test (Python 3.13t macOS)'
       condition: and(eq('${{ py_min }}', '13t'), contains(variables['Agent.OS'], 'Darwin'))
 
@@ -415,7 +406,8 @@ jobs:
         $buildPath = Join-Path $PWD "build"
         $env:PYTHONPATH = $buildPath
         cd build
-        python -c "import OCP; import sys; print(f'Python: {sys.version}'); print(f'GIL enabled: {sys._is_gil_enabled()}')"
+        # Use python3.13t.exe executable
+        & "${env:PYTHON_313T_PATH}\python3.13t.exe" -c "import OCP; import sys; print(f'Python: {sys.version}'); print(f'GIL enabled: {sys._is_gil_enabled()}')"
       displayName: 'Test (Python 3.13t Windows)'
       condition: and(eq('${{ py_min }}', '13t'), contains(variables['Agent.OS'], 'Windows_NT'))
 

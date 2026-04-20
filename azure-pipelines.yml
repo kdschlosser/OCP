@@ -33,5 +33,5 @@ jobs:
   parameters:
     name: OSX
     vmImage: 'macos-latest'
-    vmImage_compile: 'macos-latest' 
+    vmImage_compile: 'macos-latest'
     platform: OSX
