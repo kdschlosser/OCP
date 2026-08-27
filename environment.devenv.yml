@@ -3,11 +3,11 @@ channels:
   - conda-forge
 dependencies:
   - occt=8.0.0=novtk*
-  - pybind11=2.13.*
-  - python={{ get_env("PYTHON_VERSION", default="3.13") }}
   - cmake >3.24
   - ninja
   {% if  get_env("STAGE", default="generate") == "generate" %}
+  - pybind11>=3.0.2
+  - python={{ get_env("PYTHON_VERSION", default="3.13") }}
   - clangdev
   - python-clang=21.*
   - joblib
@@ -25,10 +25,18 @@ dependencies:
   - msitools # [linux]
   {% else %}
   - cxx-compiler
-  - tbb-devel # [win]
-  - libgl-devel # [linux]
   - fmt
+  {% if get_env("RUNNER_OS", default="Linux") == "Windows" %}
+  - tbb-devel
+  {% endif %}
+  {% if get_env("RUNNER_OS", default="Linux") == "Linux" %}
+  - libgl-devel
+  {% endif %}
+  {% if get_env("PYTHON_VERSION", default="3.13") != "3.14t" %}
+  - pybind11>=3.0.2
+  - python={{ get_env("PYTHON_VERSION", default="3.13") }}
   - pytest
   - pip:
       - git+https://github.com/CadQuery/pybind11-stubgen.git
+  {% endif %}
   {% endif %}

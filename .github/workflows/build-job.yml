@@ -169,18 +169,10 @@ jobs:
         run: micromamba install mamba conda-devenv
 
       - name: Prepare conda environment (mamba-devenv)
-        if: matrix.py_min != '14t'
         run: |
           export CONDA_DEVENV_ENV_MANAGER=mamba
           micromamba create -n bindgen
           micromamba run mamba-devenv -f environment.devenv.yml
-
-      - name: Prepare conda environment (C++ deps only, no VTK, no Python)
-        if: matrix.py_min == '14t'
-        run: |
-          export CONDA_DEVENV_ENV_MANAGER=mamba
-          micromamba create -n bindgen
-          micromamba run mamba-devenv -f environment_14t.devenv.yml
 
       - name: Compile (Ubuntu)
         if: contains(inputs.runner_compile, 'ubuntu')
