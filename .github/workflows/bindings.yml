@@ -25,7 +25,7 @@ jobs:
       name: Windows
       # NB: cross-generating for Windows on Linux
       runner_generate: ubuntu-22.04
-      runner_compile: windows-latest
+      runner_compile: self-hosted
       platform: Windows
     secrets:
       ANACONDA_TOKEN: ${{ secrets.ANACONDA_TOKEN }}
