@@ -2,7 +2,7 @@ name: bindgen
 channels:
   - conda-forge
 dependencies:
-  - occt=8.0.0=all*
+  - occt=8.0.0=novtk*
   - cmake >=3.30
   - ninja
   - cxx-compiler
