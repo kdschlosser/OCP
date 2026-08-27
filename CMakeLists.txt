@@ -12,7 +12,6 @@ set(MSVC_VER
     CACHE STRING "MSVC version to download for win generation")
 set(OCCT_LIB_DIR CACHE PATH "Location of OCCT sos/dlls")
 
-find_package(OpenGL REQUIRED)
 find_package(LLVM REQUIRED)
 find_package(RapidJSON REQUIRED)
 find_package(Clang REQUIRED)
