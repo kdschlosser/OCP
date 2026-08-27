@@ -299,7 +299,7 @@ jobs:
           fi
 
       - name: Build Conda Package
-        if: matrix.py_min != '14t'
+        if: matrix.py_min != '14t' && env.ANACONDA_TOKEN != ''
         env:
           BUILD_STRING: "1"
           TOKEN: ${{ secrets.ANACONDA_TOKEN }}
