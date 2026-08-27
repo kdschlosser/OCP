@@ -15,18 +15,6 @@ SET(PYTHON_SP_DIR "site-packages" CACHE PATH "Python site-packages directory (fo
 
 find_package( fmt  REQUIRED )
 find_package( pybind11 REQUIRED )
-find_package( VTK REQUIRED
-  COMPONENTS
-    WrappingPythonCore
-    RenderingCore
-    RenderingOpenGL2
-    CommonDataModel
-    CommonExecutionModel
-    freetype
-  OPTIONAL_COMPONENTS
-    mpi
-)
-message(STATUS "VTK ${VTK_VERSION} found")
 find_package( OpenCASCADE REQUIRED )
 
 include_directories( ${PROJECT_SOURCE_DIR} )
@@ -37,7 +25,7 @@ add_library( {{ name }} MODULE ${CPP_FILES} )
 target_include_directories( {{ name }} PRIVATE ${OpenCASCADE_INCLUDE_DIR} )
 
 target_link_libraries( {{ name }} PRIVATE ${OpenCASCADE_LIBRARIES} )
-target_link_libraries( {{ name }} PRIVATE pybind11::pybind11 VTK::WrappingPythonCore VTK::RenderingCore VTK::CommonDataModel VTK::CommonExecutionModel fmt::fmt)
+target_link_libraries( {{ name }} PRIVATE pybind11::pybind11 fmt::fmt)
 
 set_target_properties( {{ name }}
                        PROPERTIES

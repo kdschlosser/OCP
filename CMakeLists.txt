@@ -14,18 +14,6 @@ set(OCCT_LIB_DIR CACHE PATH "Location of OCCT sos/dlls")
 
 find_package(OpenGL REQUIRED)
 find_package(LLVM REQUIRED)
-find_package(
-  VTK REQUIRED
-  COMPONENTS CommonCore
-             WrappingPythonCore
-             RenderingCore
-             RenderingOpenGL2
-             CommonDataModel
-             CommonExecutionModel
-             freetype)
-
-message(STATUS "VTK ${VTK_VERSION} found")
-
 find_package(RapidJSON REQUIRED)
 find_package(Clang REQUIRED)
 
@@ -57,14 +45,7 @@ execute_process(COMMAND ${Python_EXECUTABLE} ${CMAKE_SOURCE_DIR}/dump_symbols.py
                         "${occt_libs}" WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
 
 get_target_property(LIBCLANG_PATH libclang IMPORTED_LOCATION_RELEASE)
-get_target_property(VTK_INCLUDE_DIR VTK::CommonCore
-                    INTERFACE_INCLUDE_DIRECTORIES)
 
-# for some reason I get multiple generator expressions
-string(REPLACE ">" ">;" VTK_INCLUDE_DIR ${VTK_INCLUDE_DIR})
-list(GET VTK_INCLUDE_DIR 0 VTK_INCLUDE_DIR)
-
-message(STATUS "Include dirs: ${VTK_INCLUDE_DIR}")
 message(STATUS "Include dirs: ${CMAKE_CXX_IMPLICIT_INCLUDE_DIRECTORIES}")
 
 # OSX
@@ -119,8 +100,7 @@ add_custom_command(
   OUTPUT ${CMAKE_BINARY_DIR}/tmp.pkl
   COMMAND
     ${CMAKE_COMMAND} -E env "PYTHONPATH=${CMAKE_SOURCE_DIR}/pywrap"
-    ${Python_EXECUTABLE} -m bindgen -n ${N_PROC} -l ${LIBCLANG_PATH} -i
-    ${VTK_INCLUDE_DIR}/
+    ${Python_EXECUTABLE} -m bindgen -n ${N_PROC} -l ${LIBCLANG_PATH}
     # -i ${OPENGL_INCLUDE_DIRS}
     -i ${RapidJSON_INCLUDE_DIRS} -i
     ${CLANG_INSTALL_PREFIX}/lib/clang/${LLVM_VERSION_MAJOR}/include/ -p
@@ -137,8 +117,7 @@ add_custom_command(
   OUTPUT ${CMAKE_BINARY_DIR}/tmp_filtered.pkl
   COMMAND
     ${CMAKE_COMMAND} -E env "PYTHONPATH=${CMAKE_SOURCE_DIR}/pywrap"
-    ${Python_EXECUTABLE} -m bindgen -n ${N_PROC} -l ${LIBCLANG_PATH} -i
-    ${VTK_INCLUDE_DIR}/
+    ${Python_EXECUTABLE} -m bindgen -n ${N_PROC} -l ${LIBCLANG_PATH}
     # -i ${OPENGL_INCLUDE_DIRS}
     -i ${RapidJSON_INCLUDE_DIRS} -i
     ${CLANG_INSTALL_PREFIX}/lib/clang/${LLVM_VERSION_MAJOR}/include/ -p
@@ -156,8 +135,7 @@ add_custom_command(
   OUTPUT ${CMAKE_BINARY_DIR}/OCP/CMakeLists.txt
   COMMAND
     ${CMAKE_COMMAND} -E env "PYTHONPATH=${CMAKE_SOURCE_DIR}/pywrap"
-    ${Python_EXECUTABLE} -m bindgen -n ${N_PROC} -l ${LIBCLANG_PATH} -i
-    ${VTK_INCLUDE_DIR}/
+    ${Python_EXECUTABLE} -m bindgen -n ${N_PROC} -l ${LIBCLANG_PATH}
     # -i ${OPENGL_INCLUDE_DIRS}
     -i ${RapidJSON_INCLUDE_DIRS} -i
     ${CLANG_INSTALL_PREFIX}/lib/clang/${LLVM_VERSION_MAJOR}/include/ -p
