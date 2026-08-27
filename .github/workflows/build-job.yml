@@ -220,10 +220,19 @@ jobs:
           if ("${{ matrix.py_min }}" -eq "14t") {
             $pyExe = (Get-Command python).Source
             $pybind11Dir = & $pyExe -c "import pybind11; print(pybind11.get_cmake_dir())"
+            # sysconfig's lowercase 'abiflags' is empty for free-threaded Windows
+            # builds (only uppercase 'ABIFLAGS' has "t"), which trips up naive
+            # name-derivation and produces "python314.lib" instead of
+            # "python314t.lib" (see PyO3/maturin#2740). Find the real file on
+            # disk instead of trusting anything that re-derives the name.
+            $pyLibDir = Join-Path (Split-Path $pyExe) "libs"
+            $pyLib = (Get-ChildItem $pyLibDir -Filter "python3*t.lib" | Select-Object -First 1).FullName
             micromamba run -n bindgen cmake -B build -S "../$env:OCP_src" -G Ninja `
               -DCMAKE_BUILD_TYPE=Release `
               -DPython_EXECUTABLE="$pyExe" `
               -DPython3_EXECUTABLE="$pyExe" `
+              -DPython_LIBRARY="$pyLib" `
+              -DPython3_LIBRARY="$pyLib" `
               -DPython_FIND_STRATEGY=LOCATION `
               -DPython3_FIND_STRATEGY=LOCATION `
               -Dpybind11_DIR="$pybind11Dir" `
