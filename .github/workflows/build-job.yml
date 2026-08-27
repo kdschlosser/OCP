@@ -37,10 +37,26 @@ jobs:
         with:
           submodules: true
 
+      - name: Read output dir
+        id: conf
+        run: |
+          OUTPUT=$(grep '^output_folder' ocp.toml | sed -E 's/output_folder *= *"(.*)"/\1/')
+          echo "OUTPUT=$OUTPUT" >> $GITHUB_OUTPUT
+
+      - name: Cache generated bindings
+        id: cache-src
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ steps.conf.outputs.OUTPUT }}
+            ${{ steps.conf.outputs.OUTPUT }}_pkl
+          key: ocp-src-${{ inputs.platform }}-${{ hashFiles('opencascade/**', 'ocp.toml', 'CMakeLists.txt', 'templates/**', 'OCP_specific.inc', 'pystreambuf.h', 'dump_symbols.py', 'environment.devenv.yml', 'pywrap/**') }}
+
       - uses: ./.github/actions/micromamba
+        if: steps.cache-src.outputs.cache-hit != 'true'
 
       - name: SDK install and symlink (Mac)
-        if: contains(inputs.runner_generate, 'mac')
+        if: steps.cache-src.outputs.cache-hit != 'true' && contains(inputs.runner_generate, 'mac')
         run: |
           curl -L -O https://github.com/phracker/MacOSX-SDKs/releases/download/11.3/MacOSX11.3.sdk.tar.xz
           sudo mkdir -p /opt
@@ -51,9 +67,11 @@ jobs:
           sudo ln -s /opt/MacOSX11.3.sdk/System/Library/Frameworks/OpenGL.framework/Headers /usr/local/include/OpenGL
 
       - name: install conda-devenv
+        if: steps.cache-src.outputs.cache-hit != 'true'
         run: micromamba install mamba conda-devenv
 
       - name: Prepare conda environment (mamba-devenv)
+        if: steps.cache-src.outputs.cache-hit != 'true'
         run: |
           export CONDA_DEVENV_ENV_MANAGER=mamba
           micromamba create -n bindgen
@@ -61,14 +79,8 @@ jobs:
           micromamba run mamba info
           micromamba run mamba-devenv -f environment.devenv.yml
 
-      - name: Read output dir
-        id: conf
-        run: |
-          OUTPUT=`micromamba run -n bindgen python -c'import toml; print(toml.load("ocp.toml")["output_folder"])'`
-          echo "OUTPUT=$OUTPUT" >> $GITHUB_OUTPUT
-      
       - name: Generate (Windows on Linux)
-        if: inputs.platform == 'Windows'
+        if: steps.cache-src.outputs.cache-hit != 'true' && inputs.platform == 'Windows'
         run: |
           micromamba create --yes --platform win-64 --no-deps --prefix ./occt "occt=8.0.0=novtk*"
           micromamba run -n bindgen cmake -S . -B . -G Ninja \
@@ -82,7 +94,7 @@ jobs:
           ls -lRht
 
       - name: Generate (Standard)
-        if: inputs.platform != 'Windows'
+        if: steps.cache-src.outputs.cache-hit != 'true' && inputs.platform != 'Windows'
         run: |
           micromamba run -n bindgen cmake -S . -B . -G Ninja \
             -DPython_ROOT_DIR=$CONDA_PREFIX \
@@ -93,6 +105,7 @@ jobs:
           ls -lRht
 
       - name: Copy pkl output
+        if: steps.cache-src.outputs.cache-hit != 'true'
         run: |
           mkdir -p ${{ steps.conf.outputs.OUTPUT }}_pkl
           cp *.pkl ${{ steps.conf.outputs.OUTPUT }}_pkl/
