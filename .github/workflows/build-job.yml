@@ -180,7 +180,7 @@ jobs:
         run: |
           export CONDA_DEVENV_ENV_MANAGER=mamba
           micromamba create -n bindgen
-          micromamba run mamba-devenv -f environment.devenv.14t.yml
+          micromamba run mamba-devenv -f environment_14t.devenv.yml
 
       - name: Compile (Ubuntu)
         if: contains(inputs.runner_compile, 'ubuntu')
