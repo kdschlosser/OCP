@@ -7,4 +7,5 @@ dependencies:
   - ninja
   - cxx-compiler
   - tbb-devel # [win]
+  - libgl-devel # [linux]
   - fmt
