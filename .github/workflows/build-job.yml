@@ -151,13 +151,6 @@ jobs:
           name: OCP_src_${{ inputs.platform }}
           path: ../${{ env.OCP_src }}
 
-      - name: SDK install (Mac)
-        if: contains(inputs.runner_compile, 'mac')
-        run: |
-          curl -L -O https://github.com/phracker/MacOSX-SDKs/releases/download/11.3/MacOSX10.15.sdk.tar.xz
-          sudo mkdir -p /opt
-          sudo tar -xf MacOSX10.15.sdk.tar.xz -C /opt
-
       - name: Set up Python 3.14t (free-threaded)
         if: matrix.py_min == '14t'
         uses: actions/setup-python@v5
@@ -215,7 +208,6 @@ jobs:
             PYBIND11_DIR=$(python -c "import pybind11; print(pybind11.get_cmake_dir())")
             micromamba run -n bindgen cmake -B build -S "../${OCP_src}" -G Ninja \
               -DCMAKE_BUILD_TYPE=Release \
-              -DCMAKE_OSX_SYSROOT=/opt/MacOSX10.15.sdk/ \
               -DPython_EXECUTABLE="$(which python)" \
               -DPython3_EXECUTABLE="$(which python)" \
               -DPython_FIND_STRATEGY=LOCATION \
@@ -223,8 +215,7 @@ jobs:
               -Dpybind11_DIR="${PYBIND11_DIR}"
           else
             micromamba run -n bindgen cmake -B build -S "../${OCP_src}" -G Ninja \
-              -DCMAKE_BUILD_TYPE=Release \
-              -DCMAKE_OSX_SYSROOT=/opt/MacOSX10.15.sdk/
+              -DCMAKE_BUILD_TYPE=Release
           fi
           micromamba run -n bindgen cmake --build build -j 2 -- -k 0
           rm -rf build/CMakeFiles
