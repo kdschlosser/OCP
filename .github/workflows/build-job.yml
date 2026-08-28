@@ -258,6 +258,17 @@ jobs:
             # disk instead of trusting anything that re-derives the name.
             $pyLibDir = Join-Path (Split-Path $pyExe) "libs"
             $pyLib = (Get-ChildItem $pyLibDir -Filter "python3*t.lib" | Select-Object -First 1).FullName
+            # pyconfig.h only embeds the correct "pythonXXXt.lib" default-
+            # library pragma into compiled objects when Py_GIL_DISABLED is
+            # defined for the compiler - its own comment states this is
+            # expected to be set by "a build backend", not inferred
+            # automatically. Without it, every object embeds the wrong,
+            # untagged "pythonXXX.lib" regardless of which Python's headers
+            # were actually used (confirmed directly by reading pyconfig.h
+            # on this machine). This only affects a *fresh* compile of these
+            # objects - it can't retroactively fix ones already built
+            # without this flag, which is what the link-retry fallback
+            # further down is for.
             micromamba run -n bindgen cmake -B build -S "../$env:OCP_src" -G Ninja `
               -DCMAKE_BUILD_TYPE=Release `
               -DPython_EXECUTABLE="$pyExe" `
@@ -267,6 +278,7 @@ jobs:
               -DPython_FIND_STRATEGY=LOCATION `
               -DPython3_FIND_STRATEGY=LOCATION `
               -Dpybind11_DIR="$pybind11Dir" `
+              -DCMAKE_CXX_FLAGS="/DPy_GIL_DISABLED=1" `
               -DCMAKE_LINKER=lld-link.exe
             if ($LASTEXITCODE -ne 0) { throw "cmake configure failed (exit $LASTEXITCODE)" }
           } else {
@@ -322,31 +334,38 @@ jobs:
           if ($retryLink) {
             Push-Location build
             try {
-              # If the failure IS the known wrong-python-lib issue, just
-              # re-extracting and re-running whatever ninja already
-              # generated would reference the exact same wrong path and
-              # fail identically. Patch the response file directly with the
-              # known-correct free-threaded lib path (found during
-              # configure above) before touching the linker at all - this
-              # is the actual fix, not just a blind retry.
-              $rspPath = "CMakeFiles\OCP.rsp"
-              if ($pyLib -and (Test-Path $rspPath)) {
-                $rspContent = Get-Content $rspPath -Raw
-                $fixedRsp = $rspContent -replace 'python3\d+\.lib', $pyLib
-                if ($fixedRsp -ne $rspContent) {
-                  Write-Host "Corrected the python lib reference in $rspPath to $pyLib"
-                  Set-Content -Path $rspPath -Value $fixedRsp -NoNewline
-                }
-              }
-
               # Ask ninja what command it would run for the OCP target
               # rather than hand-reconstructing every other flag (manifest,
               # pdb, machine, etc.) - it prints every command needed for the
               # target (all compiles, already up to date, plus the link),
-              # so take just the last line. It picks up the corrected .rsp
-              # file above automatically since that's referenced by path.
+              # so take just the last line.
               $linkCmd = (micromamba run -n bindgen ninja -t commands OCP | Select-Object -Last 1)
               if (-not $linkCmd) { throw "Could not extract the link command via 'ninja -t commands OCP'" }
+
+              # Confirmed via dumpbin //DIRECTIVES on the actual .obj files:
+              # pyconfig.h embeds "/DEFAULTLIB:pythonXXX.lib" (untagged, no
+              # "t") into every compiled object, because these particular
+              # objects were built before Py_GIL_DISABLED was defined for
+              # the compiler (see the configure step above, which now sets
+              # it - but that only affects a *fresh* compile going forward,
+              # not objects already built without it). It's not anything in
+              # the .rsp file or the explicit target_link_libraries line
+              # (already confirmed correct) - the linker pulls the wrong
+              # name in automatically and fails trying to open it,
+              # regardless of what else is specified. Explicitly ignore
+              # that one wrong default and provide the correct file instead.
+              if ($pyLib) {
+                $wrongLibName = [System.IO.Path]::GetFileName($pyLib) -replace 't\.lib$', '.lib'
+                $extraFlags = "/NODEFAULTLIB:$wrongLibName `"$pyLib`""
+                if ($linkCmd -notmatch [regex]::Escape($extraFlags)) {
+                  if ($linkCmd -match '/INCREMENTAL:NO') {
+                    $linkCmd = $linkCmd -replace '/INCREMENTAL:NO', "/INCREMENTAL:NO $extraFlags"
+                  } else {
+                    throw "Could not find an anchor point (/INCREMENTAL:NO) to inject the linker fix flags into: $linkCmd"
+                  }
+                }
+              }
+
               Write-Host "Direct link command: $linkCmd"
               & cmd.exe /c $linkCmd
               if ($LASTEXITCODE -ne 0) { throw "Direct link command failed (exit $LASTEXITCODE)" }
