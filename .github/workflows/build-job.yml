@@ -198,6 +198,29 @@ jobs:
           micromamba create -n bindgen -y
           micromamba run mamba-devenv -f environment.devenv.yml
 
+          # Steps below that invoke $PY314T directly (not wrapped in
+          # 'micromamba run -n bindgen ...') don't get the conda env's own
+          # PATH additions - on Windows, that means OCCT's TKxxx.dll,
+          # fmt.dll, tbb.dll etc. (in Library\bin) aren't found when
+          # importing OCP, since Windows resolves a DLL's own dependencies
+          # via PATH at runtime with no rpath-equivalent (unlike the .so
+          # files on Linux/macOS, which conda-forge's toolchain bakes an
+          # RPATH into at link time). Capture the env's real prefix once so
+          # those later steps can add the right directory themselves.
+          if [ "${{ inputs.platform }}" == "Windows" ]; then
+            CONDA_BINDGEN_PREFIX=$(micromamba run -n bindgen cmd /c "echo %CONDA_PREFIX%" | tr -d '\r')
+            # Steps further down export a PATH addition themselves (from
+            # Git Bash) before invoking $PY314T directly. Bash's PATH is
+            # colon-separated, and a raw "C:\foo" would be misparsed right
+            # at the drive-letter colon - convert to Git Bash's POSIX form
+            # ("/c/foo") once here so those steps can just prepend it.
+            CONDA_BINDGEN_LIBDIR=$(cygpath -u "$CONDA_BINDGEN_PREFIX/Library/bin")
+            echo "CONDA_BINDGEN_LIBDIR=$CONDA_BINDGEN_LIBDIR" >> "$GITHUB_ENV"
+          else
+            CONDA_BINDGEN_PREFIX=$(micromamba run -n bindgen bash -c 'echo $CONDA_PREFIX')
+          fi
+          echo "CONDA_BINDGEN_PREFIX=$CONDA_BINDGEN_PREFIX" >> "$GITHUB_ENV"
+
       - name: Compile (Ubuntu)
         if: inputs.platform == 'Linux'
         run: |
@@ -329,6 +352,9 @@ jobs:
         run: |
           cd build
           if [ "${{ matrix.py_min }}" == "14t" ]; then
+            if [ "${{ inputs.platform }}" == "Windows" ]; then
+              export PATH="$CONDA_BINDGEN_LIBDIR:$PATH"
+            fi
             "$PY314T" -m pybind11_stubgen -o . OCP
           else
             micromamba run -n bindgen python -m pybind11_stubgen -o . OCP
@@ -346,6 +372,9 @@ jobs:
         run: |
           cd build
           if [ "${{ matrix.py_min }}" == "14t" ]; then
+            if [ "${{ inputs.platform }}" == "Windows" ]; then
+              export PATH="$CONDA_BINDGEN_LIBDIR:$PATH"
+            fi
             "$PY314T" -c "import OCP; import sys; print(f'Python: {sys.version}'); print(f'GIL enabled: {sys._is_gil_enabled()}')"
           else
             micromamba run -n bindgen -e LD_DEBUG=libs python -c"import OCP"
@@ -355,6 +384,9 @@ jobs:
         run: |
           cd build
           if [ "${{ matrix.py_min }}" == "14t" ]; then
+            if [ "${{ inputs.platform }}" == "Windows" ]; then
+              export PATH="$CONDA_BINDGEN_LIBDIR:$PATH"
+            fi
             "$PY314T" -m pytest ../tests
           else
             micromamba run -n bindgen python -m pytest ../tests
@@ -369,8 +401,7 @@ jobs:
           cp build/OCP.*.so wheel_staging/
           cp -r build/OCP-stubs wheel_staging/OCP-stubs
           "$PY314T" setup.py bdist_wheel
-          CONDA_LIB="$(micromamba run -n bindgen bash -c 'echo $CONDA_PREFIX')/lib"
-          LD_LIBRARY_PATH="$CONDA_LIB:$LD_LIBRARY_PATH" "$PY314T" -m auditwheel repair --plat linux_x86_64 -w wheelhouse dist/OCP-*.whl
+          LD_LIBRARY_PATH="$CONDA_BINDGEN_PREFIX/lib:$LD_LIBRARY_PATH" "$PY314T" -m auditwheel repair --plat linux_x86_64 -w wheelhouse dist/OCP-*.whl
 
       - name: Build Wheel (Mac)
         if: inputs.platform == 'OSX' && matrix.py_min == '14t'
@@ -381,8 +412,7 @@ jobs:
           cp build/OCP.*.so wheel_staging/
           cp -r build/OCP-stubs wheel_staging/OCP-stubs
           "$PY314T" setup.py bdist_wheel
-          CONDA_LIB="$(micromamba run -n bindgen bash -c 'echo $CONDA_PREFIX')/lib"
-          DYLD_LIBRARY_PATH="$CONDA_LIB:$DYLD_LIBRARY_PATH" "$PY314T" -m delocate.cmd.delocate_wheel -w wheelhouse dist/OCP-*.whl
+          DYLD_LIBRARY_PATH="$CONDA_BINDGEN_PREFIX/lib:$DYLD_LIBRARY_PATH" "$PY314T" -m delocate.cmd.delocate_wheel -w wheelhouse dist/OCP-*.whl
 
       - name: Build Wheel (Windows)
         if: inputs.platform == 'Windows' && matrix.py_min == '14t'
@@ -397,7 +427,7 @@ jobs:
           Copy-Item -Recurse build\OCP-stubs wheel_staging\OCP-stubs
           & $env:PY314T setup.py bdist_wheel
           if ($LASTEXITCODE -ne 0) { throw "bdist_wheel failed (exit $LASTEXITCODE)" }
-          $condaLib = (micromamba run -n bindgen cmd /c "echo %CONDA_PREFIX%").Trim() + "\Library\bin"
+          $condaLib = "$env:CONDA_BINDGEN_PREFIX\Library\bin"
           $wheelPath = (Get-Item dist\OCP-*.whl).FullName
           & $env:PY314T -m delvewheel repair --add-path "$condaLib" -w wheelhouse "$wheelPath"
           if ($LASTEXITCODE -ne 0) { throw "delvewheel repair failed (exit $LASTEXITCODE)" }
