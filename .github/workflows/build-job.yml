@@ -145,6 +145,14 @@ jobs:
         with:
           submodules: true
 
+      - name: Prefer Git Bash over WSL's bash.exe (self-hosted Windows runners)
+        if: inputs.platform == 'Windows'
+        shell: powershell
+        run: |
+          if (Test-Path "C:\Program Files\Git\bin\bash.exe") {
+            "C:\Program Files\Git\bin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+          }
+
       - name: Download Source Artifact
         uses: actions/download-artifact@v8
         with:
