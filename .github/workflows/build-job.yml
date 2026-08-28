@@ -298,6 +298,51 @@ jobs:
             micromamba run -n bindgen python -m pytest ../tests
           fi
 
+      - name: Build Wheel (Ubuntu)
+        if: inputs.platform == 'Linux' && matrix.py_min == '14t'
+        run: |
+          python -m pip install --upgrade wheel setuptools auditwheel patchelf
+          rm -rf wheel_staging dist wheelhouse
+          mkdir -p wheel_staging
+          cp build/OCP.*.so wheel_staging/
+          cp -r build/OCP-stubs wheel_staging/OCP-stubs
+          python setup.py bdist_wheel
+          CONDA_LIB="$(micromamba run -n bindgen bash -c 'echo $CONDA_PREFIX')/lib"
+          LD_LIBRARY_PATH="$CONDA_LIB:$LD_LIBRARY_PATH" python -m auditwheel repair --plat linux_x86_64 -w wheelhouse dist/OCP-*.whl
+
+      - name: Build Wheel (Mac)
+        if: inputs.platform == 'OSX' && matrix.py_min == '14t'
+        run: |
+          python -m pip install --upgrade wheel setuptools delocate
+          rm -rf wheel_staging dist wheelhouse
+          mkdir -p wheel_staging
+          cp build/OCP.*.so wheel_staging/
+          cp -r build/OCP-stubs wheel_staging/OCP-stubs
+          python setup.py bdist_wheel
+          CONDA_LIB="$(micromamba run -n bindgen bash -c 'echo $CONDA_PREFIX')/lib"
+          DYLD_LIBRARY_PATH="$CONDA_LIB:$DYLD_LIBRARY_PATH" python -m delocate.cmd.delocate_wheel -w wheelhouse dist/OCP-*.whl
+
+      - name: Build Wheel (Windows)
+        if: inputs.platform == 'Windows' && matrix.py_min == '14t'
+        shell: powershell
+        run: |
+          python -m pip install --upgrade wheel setuptools delvewheel
+          Remove-Item -Recurse -Force wheel_staging, dist, wheelhouse -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force wheel_staging | Out-Null
+          Copy-Item build\OCP.*.pyd wheel_staging\
+          Copy-Item -Recurse build\OCP-stubs wheel_staging\OCP-stubs
+          python setup.py bdist_wheel
+          $condaLib = (micromamba run -n bindgen cmd /c "echo %CONDA_PREFIX%").Trim() + "\Library\bin"
+          $wheelPath = (Get-Item dist\OCP-*.whl).FullName
+          python -m delvewheel repair --add-path "$condaLib" -w wheelhouse "$wheelPath"
+
+      - name: Upload Wheel
+        if: matrix.py_min == '14t'
+        uses: actions/upload-artifact@v7
+        with:
+          name: OCP_wheel_${{ inputs.platform }}_py3${{ matrix.py_min }}
+          path: wheelhouse/*.whl
+
       - name: Build Conda Package
         if: matrix.py_min != '14t' && env.ANACONDA_TOKEN != ''
         env:
