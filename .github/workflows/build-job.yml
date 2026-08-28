@@ -288,16 +288,29 @@ jobs:
           # a process-wait/synchronization quirk somewhere in the
           # micromamba -> cmake -> ninja wrapping chain under heavy parallel
           # load), but the fix doesn't need to know why: verify the actual
-          # artifact exists, and if it doesn't, force just the link by
-          # re-invoking the target directly. All object files are already
-          # up to date at this point, so this only re-runs the linker.
+          # artifact exists, and if it doesn't, extract and run the real link
+          # command directly (via ninja -t commands) instead of going back
+          # through cmake/ninja orchestration, which is what silently
+          # skipped it the first time.
           $pyd = Get-ChildItem build -Filter "OCP.*.pyd" -ErrorAction SilentlyContinue | Select-Object -First 1
           if (-not $pyd) {
-            Write-Host "cmake --build reported success but no OCP.*.pyd was produced - forcing the link step directly."
-            micromamba run -n bindgen cmake --build build -j 1 --target OCP -- -v
-            if ($LASTEXITCODE -ne 0) { throw "Forced link retry failed (exit $LASTEXITCODE)" }
+            Write-Host "cmake --build reported success but no OCP.*.pyd was produced - extracting and running the real link command directly, bypassing cmake/ninja orchestration entirely."
+            Push-Location build
+            try {
+              # Ask ninja what command it would run for the OCP target rather
+              # than hardcoding any paths - it prints every command needed to
+              # build the target (all compiles, already up to date, plus the
+              # link), so take just the last line.
+              $linkCmd = (micromamba run -n bindgen ninja -t commands OCP | Select-Object -Last 1)
+              if (-not $linkCmd) { throw "Could not extract the link command via 'ninja -t commands OCP'" }
+              Write-Host "Direct link command: $linkCmd"
+              & cmd.exe /c $linkCmd
+              if ($LASTEXITCODE -ne 0) { throw "Direct link command failed (exit $LASTEXITCODE)" }
+            } finally {
+              Pop-Location
+            }
             $pyd = Get-ChildItem build -Filter "OCP.*.pyd" -ErrorAction SilentlyContinue | Select-Object -First 1
-            if (-not $pyd) { throw "OCP.*.pyd still missing after forcing the link - this is a real build failure, not a transient issue" }
+            if (-not $pyd) { throw "OCP.*.pyd still missing after running the direct link command - this is a real build failure, not a transient issue" }
           }
 
           micromamba run -n bindgen cmake -E rm -rf build\CMakeFiles
