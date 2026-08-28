@@ -277,12 +277,7 @@ jobs:
               -DCMAKE_LINKER=lld-link.exe
             if ($LASTEXITCODE -ne 0) { throw "cmake configure failed (exit $LASTEXITCODE)" }
           }
-          # Tee (not a plain capture) so output still streams live to the
-          # log as the build runs, while also letting us inspect it after
-          # for the known transient failure pattern below. Piping through
-          # Tee-Object (a cmdlet, not a native exe) doesn't disturb
-          # $LASTEXITCODE, which still reflects cmake/ninja's real exit code.
-          micromamba run -n bindgen cmake --build build -j $env:NUMBER_OF_PROCESSORS -- -v -k 0 2>&1 | Tee-Object -Variable buildOutput
+          micromamba run -n bindgen cmake --build build -j $env:NUMBER_OF_PROCESSORS -- -v -k 0
           $buildExitCode = $LASTEXITCODE
 
           # Two known-transient failure modes have shown up on this
@@ -292,23 +287,20 @@ jobs:
           # success (exit 0) but the final link never actually ran - every
           # object compiled and logged, no .pyd produced, no link attempt
           # logged, all within implausibly few seconds for a link this size;
-          # (2) the link is attempted but fails looking for the wrong,
-          # untagged python .lib despite CMakeCache.txt correctly holding
+          # (2) the link is attempted but fails, e.g. looking for the wrong
+          # untagged python .lib, despite CMakeCache.txt correctly holding
           # the right python314t.lib path (i.e. the failure doesn't reflect
-          # the actual configured state). Both recover the same way: extract
-          # the real link command via ninja's own introspection and run it
-          # directly, bypassing cmake/ninja orchestration entirely rather
-          # than trusting either the reported exit code or a stale/wrong
-          # in-flight linker invocation.
+          # the actual configured state). Rather than pattern-match specific
+          # error text (fragile - wording can change between linker
+          # versions), just check the return code: any non-zero exit is
+          # enough to try the same recovery. If it's a genuine compile
+          # failure instead of this transient issue, the retry fails too
+          # (missing .obj dependencies) and the final .pyd check below still
+          # catches and reports it - nothing gets silently masked either way.
           $retryLink = $false
           if ($buildExitCode -ne 0) {
-            $outputText = $buildOutput -join "`n"
-            if ($outputText -match "could not open 'python3\d+t?\.lib'") {
-              Write-Host "Detected the known transient missing/wrong python .lib linker error - retrying the link directly instead of failing immediately."
-              $retryLink = $true
-            } else {
-              throw "cmake --build failed (exit $buildExitCode)"
-            }
+            Write-Host "cmake --build failed (exit $buildExitCode) - retrying the link directly instead of failing immediately."
+            $retryLink = $true
           } else {
             $pyd = Get-ChildItem build -Filter "OCP.*.pyd" -ErrorAction SilentlyContinue | Select-Object -First 1
             if (-not $pyd) {
