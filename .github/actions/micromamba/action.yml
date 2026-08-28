@@ -15,7 +15,7 @@ runs:
     - name: install mambaforge (Windows)
       if: ${{ contains(runner.os,'Windows')}}
       shell: bash -l {0}
-      run: choco install mambaforge --params="'/AddToPath:1'"
+      run: choco install mambaforge -y --params="'/AddToPath:1'"
 
     - name: add to path (Windows + Bash)
       if: ${{ contains(runner.os,'Windows')}}
