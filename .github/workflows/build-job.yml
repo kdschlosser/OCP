@@ -279,6 +279,27 @@ jobs:
           }
           micromamba run -n bindgen cmake --build build -j $env:NUMBER_OF_PROCESSORS -- -v -k 0
           if ($LASTEXITCODE -ne 0) { throw "cmake --build failed (exit $LASTEXITCODE)" }
+
+          # Belt-and-suspenders: cmake --build has been observed reporting
+          # success (exit 0) without the final link actually having run -
+          # every object file compiled and logged as done, but no .pyd ever
+          # produced and no link attempt logged either, all within implausibly
+          # few seconds for a link this size. Cause not fully confirmed (likely
+          # a process-wait/synchronization quirk somewhere in the
+          # micromamba -> cmake -> ninja wrapping chain under heavy parallel
+          # load), but the fix doesn't need to know why: verify the actual
+          # artifact exists, and if it doesn't, force just the link by
+          # re-invoking the target directly. All object files are already
+          # up to date at this point, so this only re-runs the linker.
+          $pyd = Get-ChildItem build -Filter "OCP.*.pyd" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $pyd) {
+            Write-Host "cmake --build reported success but no OCP.*.pyd was produced - forcing the link step directly."
+            micromamba run -n bindgen cmake --build build -j 1 --target OCP -- -v
+            if ($LASTEXITCODE -ne 0) { throw "Forced link retry failed (exit $LASTEXITCODE)" }
+            $pyd = Get-ChildItem build -Filter "OCP.*.pyd" -ErrorAction SilentlyContinue | Select-Object -First 1
+            if (-not $pyd) { throw "OCP.*.pyd still missing after forcing the link - this is a real build failure, not a transient issue" }
+          }
+
           micromamba run -n bindgen cmake -E rm -rf build\CMakeFiles
         env:
           CXX: "cl.exe"
