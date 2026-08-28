@@ -165,11 +165,27 @@ jobs:
         with:
           python-version: '3.14t'
 
+      - name: Resolve free-threaded python executable path
+        if: matrix.py_min == '14t'
+        run: |
+          if [ "${{ inputs.platform }}" == "Windows" ]; then
+            # Don't assume the exe is named python.exe vs python3.14t.exe -
+            # find whatever the real free-threaded interpreter binary is
+            # (excluding the windowed pythonw-style variant).
+            PYDIR="${pythonLocation//\\//}"
+            PY=$(ls "$PYDIR"/python*.exe 2>/dev/null | grep -v 'w\.exe$' | head -n1)
+          else
+            PY="$pythonLocation/bin/python3"
+          fi
+          echo "Resolved free-threaded interpreter: $PY"
+          "$PY" -c "import sys; print(sys.version); print('GIL disabled build:', not sys._is_gil_enabled())"
+          echo "PY314T=$PY" >> "$GITHUB_ENV"
+
       - name: Install pybind11 3.x and test/stub deps into 3.14t
         if: matrix.py_min == '14t'
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install "pybind11>=3.0.2" pytest git+https://github.com/CadQuery/pybind11-stubgen.git
+          "$PY314T" -m pip install --upgrade pip
+          "$PY314T" -m pip install "pybind11>=3.0.2" pytest git+https://github.com/CadQuery/pybind11-stubgen.git
 
       - uses: ./.github/actions/micromamba
 
@@ -186,11 +202,11 @@ jobs:
         if: inputs.platform == 'Linux'
         run: |
           if [ "${{ matrix.py_min }}" == "14t" ]; then
-            PYBIND11_DIR=$(python -c "import pybind11; print(pybind11.get_cmake_dir())")
+            PYBIND11_DIR=$("$PY314T" -c "import pybind11; print(pybind11.get_cmake_dir())")
             micromamba run -n bindgen cmake -B build -S "../${OCP_src}" -G Ninja \
               -DCMAKE_BUILD_TYPE=Release \
-              -DPython_EXECUTABLE="$(which python)" \
-              -DPython3_EXECUTABLE="$(which python)" \
+              -DPython_EXECUTABLE="$PY314T" \
+              -DPython3_EXECUTABLE="$PY314T" \
               -DPython_FIND_STRATEGY=LOCATION \
               -DPython3_FIND_STRATEGY=LOCATION \
               -Dpybind11_DIR="${PYBIND11_DIR}"
@@ -205,11 +221,11 @@ jobs:
         if: inputs.platform == 'OSX'
         run: |
           if [ "${{ matrix.py_min }}" == "14t" ]; then
-            PYBIND11_DIR=$(python -c "import pybind11; print(pybind11.get_cmake_dir())")
+            PYBIND11_DIR=$("$PY314T" -c "import pybind11; print(pybind11.get_cmake_dir())")
             micromamba run -n bindgen cmake -B build -S "../${OCP_src}" -G Ninja \
               -DCMAKE_BUILD_TYPE=Release \
-              -DPython_EXECUTABLE="$(which python)" \
-              -DPython3_EXECUTABLE="$(which python)" \
+              -DPython_EXECUTABLE="$PY314T" \
+              -DPython3_EXECUTABLE="$PY314T" \
               -DPython_FIND_STRATEGY=LOCATION \
               -DPython3_FIND_STRATEGY=LOCATION \
               -Dpybind11_DIR="${PYBIND11_DIR}"
@@ -226,7 +242,7 @@ jobs:
         run: |
           # Note: PowerShell interpolation of env vars is different
           if ("${{ matrix.py_min }}" -eq "14t") {
-            $pyExe = (Get-Command python).Source
+            $pyExe = $env:PY314T
             $pybind11Dir = & $pyExe -c "import pybind11; print(pybind11.get_cmake_dir())"
             # sysconfig's lowercase 'abiflags' is empty for free-threaded Windows
             # builds (only uppercase 'ABIFLAGS' has "t"), which trips up naive
@@ -267,7 +283,7 @@ jobs:
         run: |
           cd build
           if [ "${{ matrix.py_min }}" == "14t" ]; then
-            python -m pybind11_stubgen -o . OCP
+            "$PY314T" -m pybind11_stubgen -o . OCP
           else
             micromamba run -n bindgen python -m pybind11_stubgen -o . OCP
           fi
@@ -284,7 +300,7 @@ jobs:
         run: |
           cd build
           if [ "${{ matrix.py_min }}" == "14t" ]; then
-            python -c "import OCP; import sys; print(f'Python: {sys.version}'); print(f'GIL enabled: {sys._is_gil_enabled()}')"
+            "$PY314T" -c "import OCP; import sys; print(f'Python: {sys.version}'); print(f'GIL enabled: {sys._is_gil_enabled()}')"
           else
             micromamba run -n bindgen -e LD_DEBUG=libs python -c"import OCP"
           fi
@@ -293,7 +309,7 @@ jobs:
         run: |
           cd build
           if [ "${{ matrix.py_min }}" == "14t" ]; then
-            python -m pytest ../tests
+            "$PY314T" -m pytest ../tests
           else
             micromamba run -n bindgen python -m pytest ../tests
           fi
@@ -301,40 +317,40 @@ jobs:
       - name: Build Wheel (Ubuntu)
         if: inputs.platform == 'Linux' && matrix.py_min == '14t'
         run: |
-          python -m pip install --upgrade wheel setuptools auditwheel patchelf
+          "$PY314T" -m pip install --upgrade wheel setuptools auditwheel patchelf
           rm -rf wheel_staging dist wheelhouse
           mkdir -p wheel_staging
           cp build/OCP.*.so wheel_staging/
           cp -r build/OCP-stubs wheel_staging/OCP-stubs
-          python setup.py bdist_wheel
+          "$PY314T" setup.py bdist_wheel
           CONDA_LIB="$(micromamba run -n bindgen bash -c 'echo $CONDA_PREFIX')/lib"
-          LD_LIBRARY_PATH="$CONDA_LIB:$LD_LIBRARY_PATH" python -m auditwheel repair --plat linux_x86_64 -w wheelhouse dist/OCP-*.whl
+          LD_LIBRARY_PATH="$CONDA_LIB:$LD_LIBRARY_PATH" "$PY314T" -m auditwheel repair --plat linux_x86_64 -w wheelhouse dist/OCP-*.whl
 
       - name: Build Wheel (Mac)
         if: inputs.platform == 'OSX' && matrix.py_min == '14t'
         run: |
-          python -m pip install --upgrade wheel setuptools delocate
+          "$PY314T" -m pip install --upgrade wheel setuptools delocate
           rm -rf wheel_staging dist wheelhouse
           mkdir -p wheel_staging
           cp build/OCP.*.so wheel_staging/
           cp -r build/OCP-stubs wheel_staging/OCP-stubs
-          python setup.py bdist_wheel
+          "$PY314T" setup.py bdist_wheel
           CONDA_LIB="$(micromamba run -n bindgen bash -c 'echo $CONDA_PREFIX')/lib"
-          DYLD_LIBRARY_PATH="$CONDA_LIB:$DYLD_LIBRARY_PATH" python -m delocate.cmd.delocate_wheel -w wheelhouse dist/OCP-*.whl
+          DYLD_LIBRARY_PATH="$CONDA_LIB:$DYLD_LIBRARY_PATH" "$PY314T" -m delocate.cmd.delocate_wheel -w wheelhouse dist/OCP-*.whl
 
       - name: Build Wheel (Windows)
         if: inputs.platform == 'Windows' && matrix.py_min == '14t'
         shell: powershell
         run: |
-          python -m pip install --upgrade wheel setuptools delvewheel
+          & $env:PY314T -m pip install --upgrade wheel setuptools delvewheel
           Remove-Item -Recurse -Force wheel_staging, dist, wheelhouse -ErrorAction SilentlyContinue
           New-Item -ItemType Directory -Force wheel_staging | Out-Null
           Copy-Item build\OCP.*.pyd wheel_staging\
           Copy-Item -Recurse build\OCP-stubs wheel_staging\OCP-stubs
-          python setup.py bdist_wheel
+          & $env:PY314T setup.py bdist_wheel
           $condaLib = (micromamba run -n bindgen cmd /c "echo %CONDA_PREFIX%").Trim() + "\Library\bin"
           $wheelPath = (Get-Item dist\OCP-*.whl).FullName
-          python -m delvewheel repair --add-path "$condaLib" -w wheelhouse "$wheelPath"
+          & $env:PY314T -m delvewheel repair --add-path "$condaLib" -w wheelhouse "$wheelPath"
 
       - name: Upload Wheel
         if: matrix.py_min == '14t'
