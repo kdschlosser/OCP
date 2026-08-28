@@ -384,6 +384,29 @@ jobs:
           # needing to touch those steps themselves.
           printf 'import os\nif os.name == "nt":\n    p = os.environ.get("CONDA_BINDGEN_PREFIX")\n    if p:\n        os.add_dll_directory(os.path.join(p, "Library", "bin"))\n' > build/sitecustomize.py
 
+      - name: Diagnose OCP.pyd DLL dependencies (Windows)
+        if: inputs.platform == 'Windows' && matrix.py_min == '14t'
+        shell: powershell
+        run: |
+          $pyd = Get-ChildItem build -Filter "OCP.*.pyd" | Select-Object -First 1
+          $dumpbin = Get-ChildItem "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC" -Recurse -Filter "dumpbin.exe" -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -like "*Hostx64\x64*" } | Select-Object -First 1
+
+          Write-Host "=== Direct dependents of $($pyd.Name) (dumpbin) ==="
+          if ($dumpbin) { & $dumpbin.FullName /dependents $pyd.FullName } else { Write-Host "dumpbin.exe not found" }
+
+          Write-Host "=== DLLs present in $env:CONDA_BINDGEN_PREFIX\Library\bin ==="
+          Get-ChildItem "$env:CONDA_BINDGEN_PREFIX\Library\bin" -Filter "*.dll" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name
+
+          Write-Host "=== build\sitecustomize.py content ==="
+          Get-Content build\sitecustomize.py
+
+          Write-Host "=== Import attempt with explicit diagnostics (cwd=build) ==="
+          Push-Location build
+          & $env:PY314T -c "import sitecustomize; print('sitecustomize loaded from', sitecustomize.__file__)"
+          & $env:PY314T -c "import OCP; print('OCP imported OK')"
+          Pop-Location
+
       - name: Upload Compilation Artifacts
         uses: actions/upload-artifact@v7
         with:
