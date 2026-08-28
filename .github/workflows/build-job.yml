@@ -203,13 +203,21 @@ jobs:
         run: |
           if [ "${{ matrix.py_min }}" == "14t" ]; then
             PYBIND11_DIR=$("$PY314T" -c "import pybind11; print(pybind11.get_cmake_dir())")
+            # Not required on Linux today (its ./configure-built pyconfig.h
+            # already bakes this in unconditionally for a free-threaded
+            # build - confirmed working without it), but harmless if
+            # redundant (redefining a macro to its existing value isn't an
+            # error) and guards against CPython changing that in the
+            # future. See the Windows step below for why it's mandatory
+            # there.
             micromamba run -n bindgen cmake -B build -S "../${OCP_src}" -G Ninja \
               -DCMAKE_BUILD_TYPE=Release \
               -DPython_EXECUTABLE="$PY314T" \
               -DPython3_EXECUTABLE="$PY314T" \
               -DPython_FIND_STRATEGY=LOCATION \
               -DPython3_FIND_STRATEGY=LOCATION \
-              -Dpybind11_DIR="${PYBIND11_DIR}"
+              -Dpybind11_DIR="${PYBIND11_DIR}" \
+              -DCMAKE_CXX_FLAGS="-DPy_GIL_DISABLED=1"
           else
             micromamba run -n bindgen cmake -B build -S "../${OCP_src}" -G Ninja \
               -DCMAKE_BUILD_TYPE=Release
@@ -222,13 +230,16 @@ jobs:
         run: |
           if [ "${{ matrix.py_min }}" == "14t" ]; then
             PYBIND11_DIR=$("$PY314T" -c "import pybind11; print(pybind11.get_cmake_dir())")
+            # Same defensive define as Linux above - not currently required
+            # but harmless if redundant, guards against future changes.
             micromamba run -n bindgen cmake -B build -S "../${OCP_src}" -G Ninja \
               -DCMAKE_BUILD_TYPE=Release \
               -DPython_EXECUTABLE="$PY314T" \
               -DPython3_EXECUTABLE="$PY314T" \
               -DPython_FIND_STRATEGY=LOCATION \
               -DPython3_FIND_STRATEGY=LOCATION \
-              -Dpybind11_DIR="${PYBIND11_DIR}"
+              -Dpybind11_DIR="${PYBIND11_DIR}" \
+              -DCMAKE_CXX_FLAGS="-DPy_GIL_DISABLED=1"
           else
             micromamba run -n bindgen cmake -B build -S "../${OCP_src}" -G Ninja \
               -DCMAKE_BUILD_TYPE=Release
