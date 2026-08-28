@@ -207,14 +207,17 @@ jobs:
           # files on Linux/macOS, which conda-forge's toolchain bakes an
           # RPATH into at link time). Capture the env's real prefix once so
           # those later steps can add the right directory themselves.
+          # Route through Git Bash on every platform (not "cmd /c echo
+          # %CONDA_PREFIX%" on Windows) - that cmd invocation was observed
+          # to leak its own prompt string ("(bindgen) D:\...\OCP>", from
+          # micromamba's env-activation PROMPT prefix) into stdout after
+          # the real value, which "take the last line" doesn't protect
+          # against since the noise can trail the value too, not just lead
+          # it. bash -c 'echo $CONDA_PREFIX' doesn't have that problem.
+          CONDA_BINDGEN_PREFIX=$(micromamba run -n bindgen bash -c 'echo $CONDA_PREFIX' | grep -v '^$' | tail -n 1)
+          echo "CONDA_BINDGEN_PREFIX=$CONDA_BINDGEN_PREFIX" >> "$GITHUB_ENV"
+
           if [ "${{ inputs.platform }}" == "Windows" ]; then
-            # "cmd /c echo %CONDA_PREFIX%" can have banner/log noise mixed
-            # into its stdout (e.g. from micromamba itself) ahead of the
-            # actual value - the real path is always the last non-blank
-            # line, so take only that. A GITHUB_ENV write must be a single
-            # line; anything else trips the runner's strict env-file parser
-            # ("Invalid format").
-            CONDA_BINDGEN_PREFIX=$(micromamba run -n bindgen cmd /c "echo %CONDA_PREFIX%" | tr -d '\r' | grep -v '^$' | tail -n 1)
             # Steps further down export a PATH addition themselves (from
             # Git Bash) before invoking $PY314T directly. Bash's PATH is
             # colon-separated, and a raw "C:\foo" would be misparsed right
@@ -222,10 +225,7 @@ jobs:
             # ("/c/foo") once here so those steps can just prepend it.
             CONDA_BINDGEN_LIBDIR=$(cygpath -u "$CONDA_BINDGEN_PREFIX/Library/bin")
             echo "CONDA_BINDGEN_LIBDIR=$CONDA_BINDGEN_LIBDIR" >> "$GITHUB_ENV"
-          else
-            CONDA_BINDGEN_PREFIX=$(micromamba run -n bindgen bash -c 'echo $CONDA_PREFIX' | grep -v '^$' | tail -n 1)
           fi
-          echo "CONDA_BINDGEN_PREFIX=$CONDA_BINDGEN_PREFIX" >> "$GITHUB_ENV"
 
       - name: Compile (Ubuntu)
         if: inputs.platform == 'Linux'
