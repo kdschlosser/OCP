@@ -362,65 +362,29 @@ jobs:
         env:
           CXX: "cl.exe"
 
-      - name: Write DLL search helper (Windows)
-        if: inputs.platform == 'Windows' && matrix.py_min == '14t'
-        run: |
-          # Since Python 3.8, PATH is no longer searched for an extension
-          # module's own load-time DLL dependencies on Windows (CPython
-          # bpo-36085, a deliberate hardening against DLL hijacking) - the
-          # only supported way to add a search directory now is calling
-          # os.add_dll_directory() from Python code before the import
-          # happens. Every PATH/GITHUB_PATH fix in this job was never
-          # going to fix "DLL load failed importing OCP" because of this;
-          # it only ever worked for conda-forge's own Python builds, which
-          # carry a patch restoring the old PATH-based search. The
-          # interpreter here comes from actions/setup-python instead - a
-          # plain python.org-style build with the strict default.
-          #
-          # Python auto-imports a module named "sitecustomize" at startup
-          # if one is importable, so dropping this file into build/ (which
-          # the steps below cd into, and which -c/-m invocations always
-          # put on sys.path as the cwd) picks it up automatically without
-          # needing to touch those steps themselves.
-          #
-          # OCP.pyd also links against python314t.dll itself. That's
-          # normally already resident in the process by the time an
-          # extension module loads (python.exe depends on it directly),
-          # but the "trusted locations" set from the same hardening above
-          # doesn't necessarily extend to a later-loaded extension
-          # module's own dependency resolution the way the app directory
-          # does for the main executable - add the interpreter's own
-          # directory explicitly too, to rule that out.
-          printf 'import os, sys\nif os.name == "nt":\n    p = os.environ.get("CONDA_BINDGEN_PREFIX")\n    if p:\n        os.add_dll_directory(os.path.join(p, "Library", "bin"))\n    os.add_dll_directory(os.path.dirname(sys.executable))\n' > build/sitecustomize.py
-
-      - name: Diagnose OCP.pyd DLL dependencies (Windows)
-        if: inputs.platform == 'Windows' && matrix.py_min == '14t'
-        shell: powershell
-        run: |
-          $pyd = Get-ChildItem build -Filter "OCP.*.pyd" | Select-Object -First 1
-          $dumpbin = Get-ChildItem "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC" -Recurse -Filter "dumpbin.exe" -ErrorAction SilentlyContinue |
-            Where-Object { $_.FullName -like "*Hostx64\x64*" } | Select-Object -First 1
-
-          Write-Host "=== Direct dependents of $($pyd.Name) (dumpbin) ==="
-          if ($dumpbin) { & $dumpbin.FullName /dependents $pyd.FullName } else { Write-Host "dumpbin.exe not found" }
-
-          Write-Host "=== DLLs present in $env:CONDA_BINDGEN_PREFIX\Library\bin ==="
-          Get-ChildItem "$env:CONDA_BINDGEN_PREFIX\Library\bin" -Filter "*.dll" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name
-
-          Write-Host "=== build\sitecustomize.py content ==="
-          Get-Content build\sitecustomize.py
-
-          Write-Host "=== Import attempt with explicit diagnostics (cwd=build) ==="
-          Push-Location build
-          & $env:PY314T -c "import sitecustomize; print('sitecustomize loaded from', sitecustomize.__file__)"
-          & $env:PY314T -c "import OCP; print('OCP imported OK')"
-          Pop-Location
-
       - name: Upload Compilation Artifacts
         uses: actions/upload-artifact@v7
         with:
           name: OCP_${{ inputs.platform }}_py3${{ matrix.py_min }}
           path: build
+
+      - name: Copy dependency DLLs next to OCP.pyd (Windows)
+        if: inputs.platform == 'Windows' && matrix.py_min == '14t'
+        run: |
+          # os.add_dll_directory() (tried first) did not actually resolve
+          # OCP's DLL dependencies despite pointing at the right directory
+          # and running without error - confirmed by reproducing the
+          # failure locally on this same runner/build/interpreter with it
+          # active the whole time. Colocating the DLLs next to OCP.pyd
+          # instead is unconditional: "the directory containing the DLL
+          # being loaded" is always searched first by Windows regardless
+          # of any add_dll_directory/trusted-locations state - confirmed
+          # fixing the same local reproduction. python314t.dll itself
+          # doesn't need copying - it's already resident in the process by
+          # the time OCP.pyd loads (python.exe depends on it directly),
+          # confirmed by the same local test succeeding without it here.
+          LIBDIR=$(cygpath -u "$CONDA_BINDGEN_PREFIX/Library/bin")
+          cp "$LIBDIR/"*.dll build/
 
       - name: Generate stubs
         run: |
