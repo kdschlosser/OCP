@@ -305,10 +305,17 @@ jobs:
             # automatically. Without it, every object embeds the wrong,
             # untagged "pythonXXX.lib" regardless of which Python's headers
             # were actually used (confirmed directly by reading pyconfig.h
-            # on this machine). This only affects a *fresh* compile of these
-            # objects - it can't retroactively fix ones already built
-            # without this flag, which is what the link-retry fallback
-            # further down is for.
+            # on this machine).
+            #
+            # Passing -DCMAKE_CXX_FLAGS on the command line sets that cache
+            # variable directly, which bypasses CMake's own MSVC default of
+            # appending /EHsc (normally injected via CMAKE_CXX_FLAGS_INIT,
+            # which only seeds the variable when nothing else set it first).
+            # Without /EHsc, cl.exe still accepts try/catch/throw but won't
+            # generate unwind tables for it (MSVC C4530) - a real problem
+            # for pybind11, which relies on C++ exceptions unwinding
+            # correctly to translate into Python exceptions. Add it back
+            # explicitly alongside our own define.
             micromamba run -n bindgen cmake -B build -S "../$env:OCP_src" -G Ninja `
               -DCMAKE_BUILD_TYPE=Release `
               -DPython_EXECUTABLE="$pyExe" `
@@ -318,7 +325,7 @@ jobs:
               -DPython_FIND_STRATEGY=LOCATION `
               -DPython3_FIND_STRATEGY=LOCATION `
               -Dpybind11_DIR="$pybind11Dir" `
-              -DCMAKE_CXX_FLAGS="/DPy_GIL_DISABLED=1" `
+              -DCMAKE_CXX_FLAGS="/EHsc /DPy_GIL_DISABLED=1" `
               -DCMAKE_LINKER=lld-link.exe
             if ($LASTEXITCODE -ne 0) { throw "cmake configure failed (exit $LASTEXITCODE)" }
           } else {
