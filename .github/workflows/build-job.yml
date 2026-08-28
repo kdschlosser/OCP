@@ -313,6 +313,15 @@ jobs:
             if (-not $pyd) { throw "OCP.*.pyd still missing after running the direct link command - this is a real build failure, not a transient issue" }
           }
 
+          # PyInstaller-bundled apps ship their own interpreter alongside
+          # whatever modules they carry, so there's no ambiguity a version
+          # tag would guard against - provide a plain-named copy for that
+          # kind of downstream use, without touching the tagged original
+          # (still used by the wheel-building step below).
+          if ($pyd.Name -ne "OCP.pyd") {
+            Copy-Item $pyd.FullName (Join-Path $pyd.Directory "OCP.pyd") -Force
+          }
+
           micromamba run -n bindgen cmake -E rm -rf build\CMakeFiles
         env:
           CXX: "cl.exe"
