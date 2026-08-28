@@ -322,10 +322,29 @@ jobs:
           if ($retryLink) {
             Push-Location build
             try {
-              # Ask ninja what command it would run for the OCP target rather
-              # than hardcoding any paths - it prints every command needed to
-              # build the target (all compiles, already up to date, plus the
-              # link), so take just the last line.
+              # If the failure IS the known wrong-python-lib issue, just
+              # re-extracting and re-running whatever ninja already
+              # generated would reference the exact same wrong path and
+              # fail identically. Patch the response file directly with the
+              # known-correct free-threaded lib path (found during
+              # configure above) before touching the linker at all - this
+              # is the actual fix, not just a blind retry.
+              $rspPath = "CMakeFiles\OCP.rsp"
+              if ($pyLib -and (Test-Path $rspPath)) {
+                $rspContent = Get-Content $rspPath -Raw
+                $fixedRsp = $rspContent -replace 'python3\d+\.lib', $pyLib
+                if ($fixedRsp -ne $rspContent) {
+                  Write-Host "Corrected the python lib reference in $rspPath to $pyLib"
+                  Set-Content -Path $rspPath -Value $fixedRsp -NoNewline
+                }
+              }
+
+              # Ask ninja what command it would run for the OCP target
+              # rather than hand-reconstructing every other flag (manifest,
+              # pdb, machine, etc.) - it prints every command needed for the
+              # target (all compiles, already up to date, plus the link),
+              # so take just the last line. It picks up the corrected .rsp
+              # file above automatically since that's referenced by path.
               $linkCmd = (micromamba run -n bindgen ninja -t commands OCP | Select-Object -Last 1)
               if (-not $linkCmd) { throw "Could not extract the link command via 'ninja -t commands OCP'" }
               Write-Host "Direct link command: $linkCmd"
