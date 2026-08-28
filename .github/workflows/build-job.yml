@@ -277,24 +277,47 @@ jobs:
               -DCMAKE_LINKER=lld-link.exe
             if ($LASTEXITCODE -ne 0) { throw "cmake configure failed (exit $LASTEXITCODE)" }
           }
-          micromamba run -n bindgen cmake --build build -j $env:NUMBER_OF_PROCESSORS -- -v -k 0
-          if ($LASTEXITCODE -ne 0) { throw "cmake --build failed (exit $LASTEXITCODE)" }
+          # Tee (not a plain capture) so output still streams live to the
+          # log as the build runs, while also letting us inspect it after
+          # for the known transient failure pattern below. Piping through
+          # Tee-Object (a cmdlet, not a native exe) doesn't disturb
+          # $LASTEXITCODE, which still reflects cmake/ninja's real exit code.
+          micromamba run -n bindgen cmake --build build -j $env:NUMBER_OF_PROCESSORS -- -v -k 0 2>&1 | Tee-Object -Variable buildOutput
+          $buildExitCode = $LASTEXITCODE
 
-          # Belt-and-suspenders: cmake --build has been observed reporting
-          # success (exit 0) without the final link actually having run -
-          # every object file compiled and logged as done, but no .pyd ever
-          # produced and no link attempt logged either, all within implausibly
-          # few seconds for a link this size. Cause not fully confirmed (likely
-          # a process-wait/synchronization quirk somewhere in the
-          # micromamba -> cmake -> ninja wrapping chain under heavy parallel
-          # load), but the fix doesn't need to know why: verify the actual
-          # artifact exists, and if it doesn't, extract and run the real link
-          # command directly (via ninja -t commands) instead of going back
-          # through cmake/ninja orchestration, which is what silently
-          # skipped it the first time.
-          $pyd = Get-ChildItem build -Filter "OCP.*.pyd" -ErrorAction SilentlyContinue | Select-Object -First 1
-          if (-not $pyd) {
-            Write-Host "cmake --build reported success but no OCP.*.pyd was produced - extracting and running the real link command directly, bypassing cmake/ninja orchestration entirely."
+          # Two known-transient failure modes have shown up on this
+          # self-hosted setup, root cause not fully confirmed for either
+          # (likely something in the micromamba -> cmake -> ninja wrapping
+          # chain under heavy parallel load): (1) cmake --build reports
+          # success (exit 0) but the final link never actually ran - every
+          # object compiled and logged, no .pyd produced, no link attempt
+          # logged, all within implausibly few seconds for a link this size;
+          # (2) the link is attempted but fails looking for the wrong,
+          # untagged python .lib despite CMakeCache.txt correctly holding
+          # the right python314t.lib path (i.e. the failure doesn't reflect
+          # the actual configured state). Both recover the same way: extract
+          # the real link command via ninja's own introspection and run it
+          # directly, bypassing cmake/ninja orchestration entirely rather
+          # than trusting either the reported exit code or a stale/wrong
+          # in-flight linker invocation.
+          $retryLink = $false
+          if ($buildExitCode -ne 0) {
+            $outputText = $buildOutput -join "`n"
+            if ($outputText -match "could not open 'python3\d+t?\.lib'") {
+              Write-Host "Detected the known transient missing/wrong python .lib linker error - retrying the link directly instead of failing immediately."
+              $retryLink = $true
+            } else {
+              throw "cmake --build failed (exit $buildExitCode)"
+            }
+          } else {
+            $pyd = Get-ChildItem build -Filter "OCP.*.pyd" -ErrorAction SilentlyContinue | Select-Object -First 1
+            if (-not $pyd) {
+              Write-Host "cmake --build reported success but no OCP.*.pyd was produced - retrying the link directly."
+              $retryLink = $true
+            }
+          }
+
+          if ($retryLink) {
             Push-Location build
             try {
               # Ask ninja what command it would run for the OCP target rather
@@ -309,9 +332,10 @@ jobs:
             } finally {
               Pop-Location
             }
-            $pyd = Get-ChildItem build -Filter "OCP.*.pyd" -ErrorAction SilentlyContinue | Select-Object -First 1
-            if (-not $pyd) { throw "OCP.*.pyd still missing after running the direct link command - this is a real build failure, not a transient issue" }
           }
+
+          $pyd = Get-ChildItem build -Filter "OCP.*.pyd" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $pyd) { throw "OCP.*.pyd is missing after the build (and direct link retry, if attempted) - this is a real build failure, not a transient issue" }
 
           # PyInstaller-bundled apps ship their own interpreter alongside
           # whatever modules they carry, so there's no ambiguity a version
