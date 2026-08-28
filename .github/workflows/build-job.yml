@@ -208,7 +208,13 @@ jobs:
           # RPATH into at link time). Capture the env's real prefix once so
           # those later steps can add the right directory themselves.
           if [ "${{ inputs.platform }}" == "Windows" ]; then
-            CONDA_BINDGEN_PREFIX=$(micromamba run -n bindgen cmd /c "echo %CONDA_PREFIX%" | tr -d '\r')
+            # "cmd /c echo %CONDA_PREFIX%" can have banner/log noise mixed
+            # into its stdout (e.g. from micromamba itself) ahead of the
+            # actual value - the real path is always the last non-blank
+            # line, so take only that. A GITHUB_ENV write must be a single
+            # line; anything else trips the runner's strict env-file parser
+            # ("Invalid format").
+            CONDA_BINDGEN_PREFIX=$(micromamba run -n bindgen cmd /c "echo %CONDA_PREFIX%" | tr -d '\r' | grep -v '^$' | tail -n 1)
             # Steps further down export a PATH addition themselves (from
             # Git Bash) before invoking $PY314T directly. Bash's PATH is
             # colon-separated, and a raw "C:\foo" would be misparsed right
@@ -217,7 +223,7 @@ jobs:
             CONDA_BINDGEN_LIBDIR=$(cygpath -u "$CONDA_BINDGEN_PREFIX/Library/bin")
             echo "CONDA_BINDGEN_LIBDIR=$CONDA_BINDGEN_LIBDIR" >> "$GITHUB_ENV"
           else
-            CONDA_BINDGEN_PREFIX=$(micromamba run -n bindgen bash -c 'echo $CONDA_PREFIX')
+            CONDA_BINDGEN_PREFIX=$(micromamba run -n bindgen bash -c 'echo $CONDA_PREFIX' | grep -v '^$' | tail -n 1)
           fi
           echo "CONDA_BINDGEN_PREFIX=$CONDA_BINDGEN_PREFIX" >> "$GITHUB_ENV"
 
@@ -401,7 +407,14 @@ jobs:
           cp build/OCP.*.so wheel_staging/
           cp -r build/OCP-stubs wheel_staging/OCP-stubs
           "$PY314T" setup.py bdist_wheel
-          LD_LIBRARY_PATH="$CONDA_BINDGEN_PREFIX/lib:$LD_LIBRARY_PATH" "$PY314T" -m auditwheel repair --plat linux_x86_64 -w wheelhouse dist/OCP-*.whl
+          # auditwheel's --plat no longer accepts a plain non-manylinux tag
+          # like "linux_x86_64" (only "auto" or a manylinux_* policy name) -
+          # let it auto-detect the right manylinux policy to actually bundle
+          # the shared libs, then retag the result back down to the plain
+          # linux_x86_64 tag we want (this wheel isn't manylinux-compliant,
+          # it's for internal use only).
+          LD_LIBRARY_PATH="$CONDA_BINDGEN_PREFIX/lib:$LD_LIBRARY_PATH" "$PY314T" -m auditwheel repair --plat auto -w wheelhouse dist/*.whl
+          "$PY314T" -m wheel tags --platform-tag=linux_x86_64 --remove wheelhouse/*.whl
 
       - name: Build Wheel (Mac)
         if: inputs.platform == 'OSX' && matrix.py_min == '14t'
@@ -412,7 +425,7 @@ jobs:
           cp build/OCP.*.so wheel_staging/
           cp -r build/OCP-stubs wheel_staging/OCP-stubs
           "$PY314T" setup.py bdist_wheel
-          DYLD_LIBRARY_PATH="$CONDA_BINDGEN_PREFIX/lib:$DYLD_LIBRARY_PATH" "$PY314T" -m delocate.cmd.delocate_wheel -w wheelhouse dist/OCP-*.whl
+          DYLD_LIBRARY_PATH="$CONDA_BINDGEN_PREFIX/lib:$DYLD_LIBRARY_PATH" "$PY314T" -m delocate.cmd.delocate_wheel -w wheelhouse dist/*.whl
 
       - name: Build Wheel (Windows)
         if: inputs.platform == 'Windows' && matrix.py_min == '14t'
@@ -428,7 +441,7 @@ jobs:
           & $env:PY314T setup.py bdist_wheel
           if ($LASTEXITCODE -ne 0) { throw "bdist_wheel failed (exit $LASTEXITCODE)" }
           $condaLib = "$env:CONDA_BINDGEN_PREFIX\Library\bin"
-          $wheelPath = (Get-Item dist\OCP-*.whl).FullName
+          $wheelPath = (Get-Item dist\*.whl).FullName
           & $env:PY314T -m delvewheel repair --add-path "$condaLib" -w wheelhouse "$wheelPath"
           if ($LASTEXITCODE -ne 0) { throw "delvewheel repair failed (exit $LASTEXITCODE)" }
 
