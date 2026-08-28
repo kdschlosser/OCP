@@ -218,13 +218,22 @@ jobs:
           echo "CONDA_BINDGEN_PREFIX=$CONDA_BINDGEN_PREFIX" >> "$GITHUB_ENV"
 
           if [ "${{ inputs.platform }}" == "Windows" ]; then
-            # Steps further down export a PATH addition themselves (from
-            # Git Bash) before invoking $PY314T directly. Bash's PATH is
-            # colon-separated, and a raw "C:\foo" would be misparsed right
-            # at the drive-letter colon - convert to Git Bash's POSIX form
-            # ("/c/foo") once here so those steps can just prepend it.
+            # Generate stubs/Test Import/Run tests (further down, all
+            # later steps in this job) invoke $PY314T directly, bypassing
+            # 'micromamba run -n bindgen ...'s own PATH setup - without
+            # OCCT's/fmt's/tbb's DLL directory on PATH, importing OCP
+            # fails at runtime (Windows resolves a DLL's own dependencies
+            # via PATH, no rpath-equivalent). $GITHUB_PATH only takes
+            # effect starting the step AFTER the one that writes it
+            # (never the same step), so registering it here - before any
+            # of those steps run - covers all of them without repeating
+            # the same PATH edit in each one.
+            #
+            # Bash's PATH is colon-separated, and a raw "C:\foo" would be
+            # misparsed right at the drive-letter colon - convert to Git
+            # Bash's POSIX form ("/c/foo") first.
             CONDA_BINDGEN_LIBDIR=$(cygpath -u "$CONDA_BINDGEN_PREFIX/Library/bin")
-            echo "CONDA_BINDGEN_LIBDIR=$CONDA_BINDGEN_LIBDIR" >> "$GITHUB_ENV"
+            echo "$CONDA_BINDGEN_LIBDIR" >> "$GITHUB_PATH"
           fi
 
       - name: Compile (Ubuntu)
@@ -363,9 +372,6 @@ jobs:
         run: |
           cd build
           if [ "${{ matrix.py_min }}" == "14t" ]; then
-            if [ "${{ inputs.platform }}" == "Windows" ]; then
-              export PATH="$CONDA_BINDGEN_LIBDIR:$PATH"
-            fi
             "$PY314T" -m pybind11_stubgen -o . OCP
           else
             micromamba run -n bindgen python -m pybind11_stubgen -o . OCP
@@ -383,9 +389,6 @@ jobs:
         run: |
           cd build
           if [ "${{ matrix.py_min }}" == "14t" ]; then
-            if [ "${{ inputs.platform }}" == "Windows" ]; then
-              export PATH="$CONDA_BINDGEN_LIBDIR:$PATH"
-            fi
             "$PY314T" -c "import OCP; import sys; print(f'Python: {sys.version}'); print(f'GIL enabled: {sys._is_gil_enabled()}')"
           else
             micromamba run -n bindgen -e LD_DEBUG=libs python -c"import OCP"
@@ -395,9 +398,6 @@ jobs:
         run: |
           cd build
           if [ "${{ matrix.py_min }}" == "14t" ]; then
-            if [ "${{ inputs.platform }}" == "Windows" ]; then
-              export PATH="$CONDA_BINDGEN_LIBDIR:$PATH"
-            fi
             "$PY314T" -m pytest ../tests
           else
             micromamba run -n bindgen python -m pytest ../tests
