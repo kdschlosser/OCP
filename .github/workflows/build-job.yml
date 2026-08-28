@@ -301,92 +301,10 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw "cmake configure failed (exit $LASTEXITCODE)" }
           }
           micromamba run -n bindgen cmake --build build -j $env:NUMBER_OF_PROCESSORS -- -v -k 0
-          $buildExitCode = $LASTEXITCODE
-
-          # Two known-transient failure modes have shown up on this
-          # self-hosted setup, root cause not fully confirmed for either
-          # (likely something in the micromamba -> cmake -> ninja wrapping
-          # chain under heavy parallel load): (1) cmake --build reports
-          # success (exit 0) but the final link never actually ran - every
-          # object compiled and logged, no .pyd produced, no link attempt
-          # logged, all within implausibly few seconds for a link this size;
-          # (2) the link is attempted but fails, e.g. looking for the wrong
-          # untagged python .lib, despite CMakeCache.txt correctly holding
-          # the right python314t.lib path (i.e. the failure doesn't reflect
-          # the actual configured state).
-          #
-          # On a non-zero exit, distinguish "genuine compile failure" from
-          # "link-stage failure" by comparing how many .obj files actually
-          # exist against how many build.ninja expects (derived at runtime,
-          # not hardcoded, so this stays correct if the module list ever
-          # changes). If every object compiled, a non-zero exit can only
-          # mean the link step itself is what failed, and it's safe to
-          # retry just that. If objects are missing, it's a real compile
-          # failure - fail immediately instead of attempting a doomed retry.
-          $retryLink = $false
-          if ($buildExitCode -ne 0) {
-            $expectedObjCount = (Select-String -Path "build\build.ninja" -Pattern '\.obj:').Count
-            $actualObjCount = (Get-ChildItem "build\CMakeFiles\OCP.dir" -Filter "*.obj" -ErrorAction SilentlyContinue).Count
-            Write-Host "cmake --build failed (exit $buildExitCode). Object files present: $actualObjCount / $expectedObjCount expected."
-            if ($expectedObjCount -gt 0 -and $actualObjCount -eq $expectedObjCount) {
-              Write-Host "All expected object files compiled successfully - this is a link-stage failure. Retrying the link directly."
-              $retryLink = $true
-            } else {
-              throw "cmake --build failed (exit $buildExitCode) with $actualObjCount/$expectedObjCount object files present - this is a genuine compile failure, not the known transient link issue."
-            }
-          } else {
-            $pyd = Get-ChildItem build -Filter "OCP.*.pyd" -ErrorAction SilentlyContinue | Select-Object -First 1
-            if (-not $pyd) {
-              Write-Host "cmake --build reported success but no OCP.*.pyd was produced - retrying the link directly."
-              $retryLink = $true
-            }
-          }
-
-          if ($retryLink) {
-            Push-Location build
-            try {
-              # Ask ninja what command it would run for the OCP target
-              # rather than hand-reconstructing every other flag (manifest,
-              # pdb, machine, etc.) - it prints every command needed for the
-              # target (all compiles, already up to date, plus the link),
-              # so take just the last line.
-              $linkCmd = (micromamba run -n bindgen ninja -t commands OCP | Select-Object -Last 1)
-              if (-not $linkCmd) { throw "Could not extract the link command via 'ninja -t commands OCP'" }
-
-              # Confirmed via dumpbin //DIRECTIVES on the actual .obj files:
-              # pyconfig.h embeds "/DEFAULTLIB:pythonXXX.lib" (untagged, no
-              # "t") into every compiled object, because these particular
-              # objects were built before Py_GIL_DISABLED was defined for
-              # the compiler (see the configure step above, which now sets
-              # it - but that only affects a *fresh* compile going forward,
-              # not objects already built without it). It's not anything in
-              # the .rsp file or the explicit target_link_libraries line
-              # (already confirmed correct) - the linker pulls the wrong
-              # name in automatically and fails trying to open it,
-              # regardless of what else is specified. Explicitly ignore
-              # that one wrong default and provide the correct file instead.
-              if ($pyLib) {
-                $wrongLibName = [System.IO.Path]::GetFileName($pyLib) -replace 't\.lib$', '.lib'
-                $extraFlags = "/NODEFAULTLIB:$wrongLibName `"$pyLib`""
-                if ($linkCmd -notmatch [regex]::Escape($extraFlags)) {
-                  if ($linkCmd -match '/INCREMENTAL:NO') {
-                    $linkCmd = $linkCmd -replace '/INCREMENTAL:NO', "/INCREMENTAL:NO $extraFlags"
-                  } else {
-                    throw "Could not find an anchor point (/INCREMENTAL:NO) to inject the linker fix flags into: $linkCmd"
-                  }
-                }
-              }
-
-              Write-Host "Direct link command: $linkCmd"
-              & cmd.exe /c $linkCmd
-              if ($LASTEXITCODE -ne 0) { throw "Direct link command failed (exit $LASTEXITCODE)" }
-            } finally {
-              Pop-Location
-            }
-          }
+          if ($LASTEXITCODE -ne 0) { throw "cmake --build failed (exit $LASTEXITCODE)" }
 
           $pyd = Get-ChildItem build -Filter "OCP.*.pyd" -ErrorAction SilentlyContinue | Select-Object -First 1
-          if (-not $pyd) { throw "OCP.*.pyd is missing after the build (and direct link retry, if attempted) - this is a real build failure, not a transient issue" }
+          if (-not $pyd) { throw "cmake --build reported success but no OCP.*.pyd was produced - this is a real build failure" }
 
           # PyInstaller-bundled apps ship their own interpreter alongside
           # whatever modules they carry, so there's no ambiguity a version
