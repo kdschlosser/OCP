@@ -362,6 +362,28 @@ jobs:
         env:
           CXX: "cl.exe"
 
+      - name: Write DLL search helper (Windows)
+        if: inputs.platform == 'Windows' && matrix.py_min == '14t'
+        run: |
+          # Since Python 3.8, PATH is no longer searched for an extension
+          # module's own load-time DLL dependencies on Windows (CPython
+          # bpo-36085, a deliberate hardening against DLL hijacking) - the
+          # only supported way to add a search directory now is calling
+          # os.add_dll_directory() from Python code before the import
+          # happens. Every PATH/GITHUB_PATH fix in this job was never
+          # going to fix "DLL load failed importing OCP" because of this;
+          # it only ever worked for conda-forge's own Python builds, which
+          # carry a patch restoring the old PATH-based search. The
+          # interpreter here comes from actions/setup-python instead - a
+          # plain python.org-style build with the strict default.
+          #
+          # Python auto-imports a module named "sitecustomize" at startup
+          # if one is importable, so dropping this file into build/ (which
+          # the steps below cd into, and which -c/-m invocations always
+          # put on sys.path as the cwd) picks it up automatically without
+          # needing to touch those steps themselves.
+          printf 'import os\nif os.name == "nt":\n    p = os.environ.get("CONDA_BINDGEN_PREFIX")\n    if p:\n        os.add_dll_directory(os.path.join(p, "Library", "bin"))\n' > build/sitecustomize.py
+
       - name: Upload Compilation Artifacts
         uses: actions/upload-artifact@v7
         with:
