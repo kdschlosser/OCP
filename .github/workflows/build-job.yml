@@ -74,7 +74,7 @@ jobs:
         if: steps.cache-src.outputs.cache-hit != 'true'
         run: |
           export CONDA_DEVENV_ENV_MANAGER=mamba
-          micromamba create -n bindgen
+          micromamba create -n bindgen -y
           env
           micromamba run mamba info
           micromamba run mamba-devenv -f environment.devenv.yml
@@ -195,7 +195,7 @@ jobs:
       - name: Prepare conda environment (mamba-devenv)
         run: |
           export CONDA_DEVENV_ENV_MANAGER=mamba
-          micromamba create -n bindgen
+          micromamba create -n bindgen -y
           micromamba run mamba-devenv -f environment.devenv.yml
 
       - name: Compile (Ubuntu)
