@@ -430,6 +430,13 @@ jobs:
           cp build/OCP.*.so wheel_staging/
           cp -r build/OCP-stubs wheel_staging/OCP-stubs
           "$PY314T" setup.py bdist_wheel
+          # Ubuntu 22.04 ships its own system patchelf via apt (0.14.3),
+          # older than auditwheel's minimum (0.14.5+) - pip installing the
+          # patchelf package above doesn't help unless its own bin dir
+          # comes first on PATH, since "patchelf" otherwise resolves to
+          # the older system one. Put the pip-installed one first
+          # explicitly rather than relying on install order.
+          export PATH="$(dirname "$PY314T"):$PATH"
           # auditwheel's --plat no longer accepts a plain non-manylinux tag
           # like "linux_x86_64" (only "auto" or a manylinux_* policy name) -
           # let it auto-detect the right manylinux policy to actually bundle
@@ -447,7 +454,15 @@ jobs:
           mkdir -p wheel_staging
           cp build/OCP.*.so wheel_staging/
           cp -r build/OCP-stubs wheel_staging/OCP-stubs
-          "$PY314T" setup.py bdist_wheel
+          # The python.org-style universal2 framework build reports its
+          # own sysconfig platform as macosx-10.15-universal2 regardless
+          # of what was actually compiled here - macos-15 runners are
+          # Apple Silicon only, so the real .so is arm64-only. Left to
+          # its own detection, bdist_wheel tags the wheel universal2, and
+          # delocate-wheel then fails trying to validate an x86_64 slice
+          # that was never there. Tell it the real, single-arch tag
+          # explicitly instead of trusting the interpreter's own claim.
+          "$PY314T" setup.py bdist_wheel --plat-name macosx-11.0-arm64
           DYLD_LIBRARY_PATH="$CONDA_BINDGEN_PREFIX/lib:$DYLD_LIBRARY_PATH" "$PY314T" -m delocate.cmd.delocate_wheel -w wheelhouse dist/*.whl
 
       - name: Build Wheel (Windows)
