@@ -382,7 +382,16 @@ jobs:
           # the steps below cd into, and which -c/-m invocations always
           # put on sys.path as the cwd) picks it up automatically without
           # needing to touch those steps themselves.
-          printf 'import os\nif os.name == "nt":\n    p = os.environ.get("CONDA_BINDGEN_PREFIX")\n    if p:\n        os.add_dll_directory(os.path.join(p, "Library", "bin"))\n' > build/sitecustomize.py
+          #
+          # OCP.pyd also links against python314t.dll itself. That's
+          # normally already resident in the process by the time an
+          # extension module loads (python.exe depends on it directly),
+          # but the "trusted locations" set from the same hardening above
+          # doesn't necessarily extend to a later-loaded extension
+          # module's own dependency resolution the way the app directory
+          # does for the main executable - add the interpreter's own
+          # directory explicitly too, to rule that out.
+          printf 'import os, sys\nif os.name == "nt":\n    p = os.environ.get("CONDA_BINDGEN_PREFIX")\n    if p:\n        os.add_dll_directory(os.path.join(p, "Library", "bin"))\n    os.add_dll_directory(os.path.dirname(sys.executable))\n' > build/sitecustomize.py
 
       - name: Diagnose OCP.pyd DLL dependencies (Windows)
         if: inputs.platform == 'Windows' && matrix.py_min == '14t'
