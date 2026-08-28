@@ -21,7 +21,7 @@ on:
 
 defaults:
   run:
-    shell: bash -l {0}
+    shell: bash -leo pipefail {0}
 
 jobs:
   # Run pywrap and generate sources
@@ -240,6 +240,13 @@ jobs:
         if: inputs.platform == 'Windows'
         shell: powershell
         run: |
+          # PowerShell 5.1 does NOT stop the script or fail the step when a
+          # native command (cmake, ninja, etc.) exits non-zero - it just
+          # keeps going, which previously let a failed configure/link hide
+          # behind the later (always-succeeding) cleanup command. Check
+          # $LASTEXITCODE explicitly after every native invocation instead.
+          $ErrorActionPreference = 'Stop'
+
           # Note: PowerShell interpolation of env vars is different
           if ("${{ matrix.py_min }}" -eq "14t") {
             $pyExe = $env:PY314T
@@ -261,14 +268,17 @@ jobs:
               -DPython3_FIND_STRATEGY=LOCATION `
               -Dpybind11_DIR="$pybind11Dir" `
               -DCMAKE_LINKER=lld-link.exe
+            if ($LASTEXITCODE -ne 0) { throw "cmake configure failed (exit $LASTEXITCODE)" }
           } else {
             micromamba run -n bindgen cmake -B build -S "../$env:OCP_src" -G Ninja `
               -DCMAKE_BUILD_TYPE=Release `
               -DPython3_FIND_STRATEGY=LOCATION `
               -DPython3_ROOT_DIR=$env:CONDA_PREFIX `
               -DCMAKE_LINKER=lld-link.exe
+            if ($LASTEXITCODE -ne 0) { throw "cmake configure failed (exit $LASTEXITCODE)" }
           }
           micromamba run -n bindgen cmake --build build -j $env:NUMBER_OF_PROCESSORS -- -v -k 0
+          if ($LASTEXITCODE -ne 0) { throw "cmake --build failed (exit $LASTEXITCODE)" }
           micromamba run -n bindgen cmake -E rm -rf build\CMakeFiles
         env:
           CXX: "cl.exe"
@@ -342,15 +352,19 @@ jobs:
         if: inputs.platform == 'Windows' && matrix.py_min == '14t'
         shell: powershell
         run: |
+          $ErrorActionPreference = 'Stop'
           & $env:PY314T -m pip install --upgrade wheel setuptools delvewheel
+          if ($LASTEXITCODE -ne 0) { throw "pip install failed (exit $LASTEXITCODE)" }
           Remove-Item -Recurse -Force wheel_staging, dist, wheelhouse -ErrorAction SilentlyContinue
           New-Item -ItemType Directory -Force wheel_staging | Out-Null
           Copy-Item build\OCP.*.pyd wheel_staging\
           Copy-Item -Recurse build\OCP-stubs wheel_staging\OCP-stubs
           & $env:PY314T setup.py bdist_wheel
+          if ($LASTEXITCODE -ne 0) { throw "bdist_wheel failed (exit $LASTEXITCODE)" }
           $condaLib = (micromamba run -n bindgen cmd /c "echo %CONDA_PREFIX%").Trim() + "\Library\bin"
           $wheelPath = (Get-Item dist\OCP-*.whl).FullName
           & $env:PY314T -m delvewheel repair --add-path "$condaLib" -w wheelhouse "$wheelPath"
+          if ($LASTEXITCODE -ne 0) { throw "delvewheel repair failed (exit $LASTEXITCODE)" }
 
       - name: Upload Wheel
         if: matrix.py_min == '14t'
