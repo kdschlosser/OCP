@@ -307,15 +307,13 @@ jobs:
             # were actually used (confirmed directly by reading pyconfig.h
             # on this machine).
             #
-            # Passing -DCMAKE_CXX_FLAGS on the command line sets that cache
-            # variable directly, which bypasses CMake's own MSVC default of
-            # appending /EHsc (normally injected via CMAKE_CXX_FLAGS_INIT,
-            # which only seeds the variable when nothing else set it first).
-            # Without /EHsc, cl.exe still accepts try/catch/throw but won't
-            # generate unwind tables for it (MSVC C4530) - a real problem
-            # for pybind11, which relies on C++ exceptions unwinding
-            # correctly to translate into Python exceptions. Add it back
-            # explicitly alongside our own define.
+            # /EHsc has been missing from this build regardless (predates
+            # the Py_GIL_DISABLED define above - MSVC C4530). Without it,
+            # cl.exe still accepts try/catch/throw but won't generate
+            # unwind tables for it, which matters for pybind11 since it
+            # relies on C++ exceptions unwinding correctly to translate
+            # into Python exceptions. Set it explicitly here rather than
+            # rely on whatever was (or wasn't) supplying it before.
             micromamba run -n bindgen cmake -B build -S "../$env:OCP_src" -G Ninja `
               -DCMAKE_BUILD_TYPE=Release `
               -DPython_EXECUTABLE="$pyExe" `
