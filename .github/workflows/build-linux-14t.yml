@@ -1,0 +1,139 @@
+name: Build Linux (3.14t)
+
+on:
+  workflow_call: {}
+
+defaults:
+  run:
+    shell: bash -leo pipefail {0}
+
+jobs:
+  compile:
+    name: Compile Linux (3.14t)
+    runs-on: ubuntu-22.04
+
+    env:
+      OCP_src: OCP_src_linux
+      n_cores: 2
+      PYTHON_VERSION: 3.14t
+      STAGE: "compile"
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: true
+
+      - name: Download Source Artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: OCP_src_linux
+          path: ../${{ env.OCP_src }}
+
+      - name: Set up Python 3.14t (free-threaded)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.14t'
+
+      - name: Resolve free-threaded python executable path
+        run: |
+          PY="$pythonLocation/bin/python3"
+          echo "Resolved free-threaded interpreter: $PY"
+          "$PY" -c "import sys; print(sys.version); print('GIL disabled build:', not sys._is_gil_enabled())"
+          echo "PY314T=$PY" >> "$GITHUB_ENV"
+
+      - name: Install pybind11 3.x and test/stub deps into 3.14t
+        run: |
+          "$PY314T" -m pip install --upgrade pip
+          "$PY314T" -m pip install "pybind11>=3.0.2" pytest git+https://github.com/CadQuery/pybind11-stubgen.git
+
+      - uses: ./.github/actions/micromamba
+
+      - name: install conda-devenv
+        run: micromamba install mamba conda-devenv
+
+      - name: Prepare conda environment (mamba-devenv)
+        run: |
+          export CONDA_DEVENV_ENV_MANAGER=mamba
+          micromamba create -n bindgen -y
+          micromamba run mamba-devenv -f environment.devenv.yml
+          CONDA_BINDGEN_PREFIX=$(micromamba run -n bindgen bash -c 'echo $CONDA_PREFIX' | grep -v '^$' | tail -n 1)
+          echo "CONDA_BINDGEN_PREFIX=$CONDA_BINDGEN_PREFIX" >> "$GITHUB_ENV"
+
+      - name: Compile
+        run: |
+          PYBIND11_DIR=$("$PY314T" -c "import pybind11; print(pybind11.get_cmake_dir())")
+          # Not required on Linux today (its ./configure-built pyconfig.h
+          # already bakes this in unconditionally for a free-threaded
+          # build - confirmed working without it), but harmless if
+          # redundant (redefining a macro to its existing value isn't an
+          # error) and guards against CPython changing that in the
+          # future. See the Windows workflow for why it's mandatory there.
+          micromamba run -n bindgen cmake -B build -S "../${OCP_src}" -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DPython_EXECUTABLE="$PY314T" \
+            -DPython3_EXECUTABLE="$PY314T" \
+            -DPython_FIND_STRATEGY=LOCATION \
+            -DPython3_FIND_STRATEGY=LOCATION \
+            -Dpybind11_DIR="${PYBIND11_DIR}" \
+            -DCMAKE_CXX_FLAGS="-DPy_GIL_DISABLED=1"
+          micromamba run -n bindgen cmake --build build -j 2 -- -k 0
+          rm -rf build/CMakeFiles
+
+      - name: Upload Compilation Artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: OCP_Linux_py314t
+          path: build
+
+      - name: Generate stubs
+        run: |
+          cd build
+          "$PY314T" -m pybind11_stubgen -o . OCP
+          cp -r "../../${OCP_src}" ../upload
+          cp -r OCP-stubs ../upload/
+
+      - name: Upload Stubs Artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: OCP_src_stubs_Linux_py314t
+          path: upload
+
+      - name: Test Import
+        run: |
+          cd build
+          "$PY314T" -c "import OCP; import sys; print(f'Python: {sys.version}'); print(f'GIL enabled: {sys._is_gil_enabled()}')"
+
+      - name: Run tests
+        run: |
+          cd build
+          "$PY314T" -m pytest ../tests
+
+      - name: Build Wheel
+        run: |
+          "$PY314T" -m pip install --upgrade wheel setuptools auditwheel patchelf
+          rm -rf wheel_staging dist wheelhouse
+          mkdir -p wheel_staging
+          cp build/OCP.*.so wheel_staging/
+          cp -r build/OCP-stubs wheel_staging/OCP-stubs
+          "$PY314T" setup.py bdist_wheel
+          # Ubuntu 22.04 ships its own system patchelf via apt (0.14.3),
+          # older than auditwheel's minimum (0.14.5+) - pip installing the
+          # patchelf package above doesn't help unless its own bin dir
+          # comes first on PATH, since "patchelf" otherwise resolves to
+          # the older system one. Put the pip-installed one first
+          # explicitly rather than relying on install order.
+          export PATH="$(dirname "$PY314T"):$PATH"
+          # auditwheel's --plat no longer accepts a plain non-manylinux tag
+          # like "linux_x86_64" (only "auto" or a manylinux_* policy name) -
+          # let it auto-detect the right manylinux policy to actually bundle
+          # the shared libs, then retag the result back down to the plain
+          # linux_x86_64 tag we want (this wheel isn't manylinux-compliant,
+          # it's for internal use only).
+          LD_LIBRARY_PATH="$CONDA_BINDGEN_PREFIX/lib:$LD_LIBRARY_PATH" "$PY314T" -m auditwheel repair --plat auto -w wheelhouse dist/*.whl
+          "$PY314T" -m wheel tags --platform-tag=linux_x86_64 --remove wheelhouse/*.whl
+
+      - name: Upload Wheel
+        uses: actions/upload-artifact@v7
+        with:
+          name: OCP_wheel_Linux_py314t
+          path: wheelhouse/*.whl

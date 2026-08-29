@@ -1,0 +1,236 @@
+name: Build Windows (3.14t)
+
+on:
+  workflow_call: {}
+
+defaults:
+  run:
+    shell: bash -leo pipefail {0}
+
+jobs:
+  compile:
+    name: Compile Windows (3.14t)
+    runs-on: self-hosted
+
+    env:
+      OCP_src: OCP_src_windows
+      n_cores: 2
+      PYTHON_VERSION: 3.14t
+      STAGE: "compile"
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: true
+
+      - name: Prefer Git Bash over WSL's bash.exe (self-hosted Windows runners)
+        shell: powershell
+        run: |
+          if (Test-Path "C:\Program Files\Git\bin\bash.exe") {
+            "C:\Program Files\Git\bin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+          }
+
+      - name: Download Source Artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: OCP_src_windows
+          path: ../${{ env.OCP_src }}
+
+      - name: Set up Python 3.14t (free-threaded)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.14t'
+
+      - name: Resolve free-threaded python executable path
+        run: |
+          # Don't assume the exe is named python.exe vs python3.14t.exe -
+          # find whatever the real free-threaded interpreter binary is
+          # (excluding the windowed pythonw-style variant).
+          PYDIR="${pythonLocation//\\//}"
+          PY=$(ls "$PYDIR"/python*.exe 2>/dev/null | grep -v 'w\.exe$' | head -n1)
+          echo "Resolved free-threaded interpreter: $PY"
+          "$PY" -c "import sys; print(sys.version); print('GIL disabled build:', not sys._is_gil_enabled())"
+          echo "PY314T=$PY" >> "$GITHUB_ENV"
+
+      - name: Install pybind11 3.x and test/stub deps into 3.14t
+        run: |
+          "$PY314T" -m pip install --upgrade pip
+          "$PY314T" -m pip install "pybind11>=3.0.2" pytest git+https://github.com/CadQuery/pybind11-stubgen.git
+
+      - uses: ./.github/actions/micromamba
+
+      - name: install conda-devenv
+        run: micromamba install mamba conda-devenv
+
+      - name: Prepare conda environment (mamba-devenv)
+        run: |
+          export CONDA_DEVENV_ENV_MANAGER=mamba
+          micromamba create -n bindgen -y
+          micromamba run mamba-devenv -f environment.devenv.yml
+
+          # Steps below invoke $PY314T directly (not wrapped in
+          # 'micromamba run -n bindgen ...'), so they don't get the conda
+          # env's own PATH additions - OCCT's TKxxx.dll, fmt.dll, tbb.dll
+          # etc. (in Library\bin) aren't found when importing OCP, since
+          # Windows resolves a DLL's own dependencies via PATH at runtime
+          # with no rpath-equivalent. Capture the env's real prefix once so
+          # later steps can add the right directory themselves.
+          #
+          # Route through Git Bash (not "cmd /c echo %CONDA_PREFIX%") -
+          # that cmd invocation was observed to leak its own prompt string
+          # ("(bindgen) D:\...\OCP>", from micromamba's env-activation
+          # PROMPT prefix) into stdout after the real value, which "take
+          # the last line" doesn't protect against since the noise can
+          # trail the value too, not just lead it. bash -c 'echo
+          # $CONDA_PREFIX' doesn't have that problem.
+          CONDA_BINDGEN_PREFIX=$(micromamba run -n bindgen bash -c 'echo $CONDA_PREFIX' | grep -v '^$' | tail -n 1)
+          echo "CONDA_BINDGEN_PREFIX=$CONDA_BINDGEN_PREFIX" >> "$GITHUB_ENV"
+
+          # Generate stubs/Test Import/Run tests (further down, all later
+          # steps in this job) invoke $PY314T directly. $GITHUB_PATH only
+          # takes effect starting the step AFTER the one that writes it
+          # (never the same step), so registering it here - before any of
+          # those steps run - covers all of them without repeating the
+          # same PATH edit in each one.
+          #
+          # Bash's PATH is colon-separated, and a raw "C:\foo" would be
+          # misparsed right at the drive-letter colon - convert to Git
+          # Bash's POSIX form ("/c/foo") first.
+          CONDA_BINDGEN_LIBDIR=$(cygpath -u "$CONDA_BINDGEN_PREFIX/Library/bin")
+          echo "$CONDA_BINDGEN_LIBDIR" >> "$GITHUB_PATH"
+
+      - name: Compile (Windows)
+        shell: powershell
+        run: |
+          # PowerShell 5.1 does NOT stop the script or fail the step when a
+          # native command (cmake, ninja, etc.) exits non-zero - it just
+          # keeps going, which previously let a failed configure/link hide
+          # behind the later (always-succeeding) cleanup command. Check
+          # $LASTEXITCODE explicitly after every native invocation instead.
+          $ErrorActionPreference = 'Stop'
+
+          $pyExe = $env:PY314T
+          $pybind11Dir = & $pyExe -c "import pybind11; print(pybind11.get_cmake_dir())"
+          # sysconfig's lowercase 'abiflags' is empty for free-threaded Windows
+          # builds (only uppercase 'ABIFLAGS' has "t"), which trips up naive
+          # name-derivation and produces "python314.lib" instead of
+          # "python314t.lib" (see PyO3/maturin#2740). Find the real file on
+          # disk instead of trusting anything that re-derives the name.
+          $pyLibDir = Join-Path (Split-Path $pyExe) "libs"
+          $pyLib = (Get-ChildItem $pyLibDir -Filter "python3*t.lib" | Select-Object -First 1).FullName
+          # pyconfig.h only embeds the correct "pythonXXXt.lib" default-
+          # library pragma into compiled objects when Py_GIL_DISABLED is
+          # defined for the compiler - its own comment states this is
+          # expected to be set by "a build backend", not inferred
+          # automatically. Without it, every object embeds the wrong,
+          # untagged "pythonXXX.lib" regardless of which Python's headers
+          # were actually used (confirmed directly by reading pyconfig.h
+          # on this machine).
+          #
+          # /EHsc has been missing from this build regardless (predates
+          # the Py_GIL_DISABLED define above - MSVC C4530). Without it,
+          # cl.exe still accepts try/catch/throw but won't generate
+          # unwind tables for it, which matters for pybind11 since it
+          # relies on C++ exceptions unwinding correctly to translate
+          # into Python exceptions. Set it explicitly here rather than
+          # rely on whatever was (or wasn't) supplying it before.
+          micromamba run -n bindgen cmake -B build -S "../$env:OCP_src" -G Ninja `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DPython_EXECUTABLE="$pyExe" `
+            -DPython3_EXECUTABLE="$pyExe" `
+            -DPython_LIBRARY="$pyLib" `
+            -DPython3_LIBRARY="$pyLib" `
+            -DPython_FIND_STRATEGY=LOCATION `
+            -DPython3_FIND_STRATEGY=LOCATION `
+            -Dpybind11_DIR="$pybind11Dir" `
+            -DCMAKE_CXX_FLAGS="/EHsc /DPy_GIL_DISABLED=1" `
+            -DCMAKE_LINKER=lld-link.exe
+          if ($LASTEXITCODE -ne 0) { throw "cmake configure failed (exit $LASTEXITCODE)" }
+
+          micromamba run -n bindgen cmake --build build -j $env:NUMBER_OF_PROCESSORS -- -v -k 0
+          if ($LASTEXITCODE -ne 0) { throw "cmake --build failed (exit $LASTEXITCODE)" }
+
+          $pyd = Get-ChildItem build -Filter "OCP.*.pyd" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $pyd) { throw "cmake --build reported success but no OCP.*.pyd was produced - this is a real build failure" }
+
+          # PyInstaller-bundled apps ship their own interpreter alongside
+          # whatever modules they carry, so there's no ambiguity a version
+          # tag would guard against - provide a plain-named copy for that
+          # kind of downstream use, without touching the tagged original
+          # (still used by the wheel-building step below).
+          if ($pyd.Name -ne "OCP.pyd") {
+            Copy-Item $pyd.FullName (Join-Path $pyd.Directory "OCP.pyd") -Force
+          }
+
+          micromamba run -n bindgen cmake -E rm -rf build\CMakeFiles
+        env:
+          CXX: "cl.exe"
+
+      - name: Upload Compilation Artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: OCP_Windows_py314t
+          path: build
+
+      - name: Copy dependency DLLs next to OCP.pyd
+        run: |
+          # os.add_dll_directory() (tried first) did not actually resolve
+          # OCP's DLL dependencies despite pointing at the right directory
+          # and running without error - confirmed by reproducing the
+          # failure locally on the same runner/build/interpreter with it
+          # active the whole time. Colocating the DLLs next to OCP.pyd
+          # instead is unconditional: "the directory containing the DLL
+          # being loaded" is always searched first by Windows regardless
+          # of any add_dll_directory/trusted-locations state - confirmed
+          # fixing the same local reproduction. python314t.dll itself
+          # doesn't need copying - it's already resident in the process by
+          # the time OCP.pyd loads (python.exe depends on it directly),
+          # confirmed by the same local test succeeding without it here.
+          LIBDIR=$(cygpath -u "$CONDA_BINDGEN_PREFIX/Library/bin")
+          cp "$LIBDIR/"*.dll build/
+
+      - name: Generate stubs
+        run: |
+          cd build
+          "$PY314T" -m pybind11_stubgen -o . OCP
+          cp -r "../../${OCP_src}" ../upload
+          cp -r OCP-stubs ../upload/
+
+      - name: Upload Stubs Artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: OCP_src_stubs_Windows_py314t
+          path: upload
+
+      - name: Test Import
+        run: |
+          cd build
+          "$PY314T" -c "import OCP; import sys; print(f'Python: {sys.version}'); print(f'GIL enabled: {sys._is_gil_enabled()}')"
+
+      - name: Run tests
+        run: |
+          cd build
+          "$PY314T" -m pytest ../tests
+
+      - name: Build Wheel
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & $env:PY314T -m pip install --upgrade wheel setuptools delvewheel
+          if ($LASTEXITCODE -ne 0) { throw "pip install failed (exit $LASTEXITCODE)" }
+          Remove-Item -Recurse -Force wheel_staging, dist, wheelhouse -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force wheel_staging | Out-Null
+          Copy-Item build\OCP.*.pyd wheel_staging\
+          Copy-Item -Recurse build\OCP-stubs wheel_staging\OCP-stubs
+          & $env:PY314T setup.py bdist_wheel
+          if ($LASTEXITCODE -ne 0) { throw "bdist_wheel failed (exit $LASTEXITCODE)" }
+          $condaLib = "$env:CONDA_BINDGEN_PREFIX\Library\bin"
+          $wheelPath = (Get-Item dist\*.whl).FullName
+          & $env:PY314T -m delvewheel repair --add-path "$condaLib" -w wheelhouse "$wheelPath"
+          if ($LASTEXITCODE -ne 0) { throw "delvewheel repair failed (exit $LASTEXITCODE)" }
+
+      - name: Upload Wheel
+        uses: actions/upload-artifact@v7
+        with:
+          name: OCP_wheel_Windows_py314t
+          path: wheelhouse/*.whl

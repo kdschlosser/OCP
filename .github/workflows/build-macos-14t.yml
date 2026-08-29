@@ -1,0 +1,129 @@
+name: Build macOS (3.14t)
+
+on:
+  workflow_call: {}
+
+defaults:
+  run:
+    shell: bash -leo pipefail {0}
+
+jobs:
+  compile:
+    name: Compile macOS (3.14t)
+    runs-on: macos-15
+
+    env:
+      OCP_src: OCP_src_macos
+      n_cores: 2
+      PYTHON_VERSION: 3.14t
+      STAGE: "compile"
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: true
+
+      - name: Download Source Artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: OCP_src_macos
+          path: ../${{ env.OCP_src }}
+
+      - name: Set up Python 3.14t (free-threaded)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.14t'
+
+      - name: Resolve free-threaded python executable path
+        run: |
+          PY="$pythonLocation/bin/python3"
+          echo "Resolved free-threaded interpreter: $PY"
+          "$PY" -c "import sys; print(sys.version); print('GIL disabled build:', not sys._is_gil_enabled())"
+          echo "PY314T=$PY" >> "$GITHUB_ENV"
+
+      - name: Install pybind11 3.x and test/stub deps into 3.14t
+        run: |
+          "$PY314T" -m pip install --upgrade pip
+          "$PY314T" -m pip install "pybind11>=3.0.2" pytest git+https://github.com/CadQuery/pybind11-stubgen.git
+
+      - uses: ./.github/actions/micromamba
+
+      - name: install conda-devenv
+        run: micromamba install mamba conda-devenv
+
+      - name: Prepare conda environment (mamba-devenv)
+        run: |
+          export CONDA_DEVENV_ENV_MANAGER=mamba
+          micromamba create -n bindgen -y
+          micromamba run mamba-devenv -f environment.devenv.yml
+          CONDA_BINDGEN_PREFIX=$(micromamba run -n bindgen bash -c 'echo $CONDA_PREFIX' | grep -v '^$' | tail -n 1)
+          echo "CONDA_BINDGEN_PREFIX=$CONDA_BINDGEN_PREFIX" >> "$GITHUB_ENV"
+
+      - name: Compile
+        run: |
+          PYBIND11_DIR=$("$PY314T" -c "import pybind11; print(pybind11.get_cmake_dir())")
+          # Same defensive define as Linux - not currently required but
+          # harmless if redundant, guards against future changes.
+          micromamba run -n bindgen cmake -B build -S "../${OCP_src}" -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DPython_EXECUTABLE="$PY314T" \
+            -DPython3_EXECUTABLE="$PY314T" \
+            -DPython_FIND_STRATEGY=LOCATION \
+            -DPython3_FIND_STRATEGY=LOCATION \
+            -Dpybind11_DIR="${PYBIND11_DIR}" \
+            -DCMAKE_CXX_FLAGS="-DPy_GIL_DISABLED=1"
+          micromamba run -n bindgen cmake --build build -j 2 -- -k 0
+          rm -rf build/CMakeFiles
+
+      - name: Upload Compilation Artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: OCP_OSX_py314t
+          path: build
+
+      - name: Generate stubs
+        run: |
+          cd build
+          "$PY314T" -m pybind11_stubgen -o . OCP
+          cp -r "../../${OCP_src}" ../upload
+          cp -r OCP-stubs ../upload/
+
+      - name: Upload Stubs Artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: OCP_src_stubs_OSX_py314t
+          path: upload
+
+      - name: Test Import
+        run: |
+          cd build
+          "$PY314T" -c "import OCP; import sys; print(f'Python: {sys.version}'); print(f'GIL enabled: {sys._is_gil_enabled()}')"
+
+      - name: Run tests
+        run: |
+          cd build
+          "$PY314T" -m pytest ../tests
+
+      - name: Build Wheel
+        run: |
+          "$PY314T" -m pip install --upgrade wheel setuptools delocate
+          rm -rf wheel_staging dist wheelhouse
+          mkdir -p wheel_staging
+          cp build/OCP.*.so wheel_staging/
+          cp -r build/OCP-stubs wheel_staging/OCP-stubs
+          # The python.org-style universal2 framework build reports its
+          # own sysconfig platform as macosx-10.15-universal2 regardless
+          # of what was actually compiled here - macos-15 runners are
+          # Apple Silicon only, so the real .so is arm64-only. Left to
+          # its own detection, bdist_wheel tags the wheel universal2, and
+          # delocate-wheel then fails trying to validate an x86_64 slice
+          # that was never there. Tell it the real, single-arch tag
+          # explicitly instead of trusting the interpreter's own claim.
+          "$PY314T" setup.py bdist_wheel --plat-name macosx-11.0-arm64
+          DYLD_LIBRARY_PATH="$CONDA_BINDGEN_PREFIX/lib:$DYLD_LIBRARY_PATH" "$PY314T" -m delocate.cmd.delocate_wheel -w wheelhouse dist/*.whl
+
+      - name: Upload Wheel
+        uses: actions/upload-artifact@v7
+        with:
+          name: OCP_wheel_OSX_py314t
+          path: wheelhouse/*.whl

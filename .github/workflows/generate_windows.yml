@@ -1,0 +1,91 @@
+name: Generate Windows bindings
+
+# Runs pywrap/bindgen once per platform to produce the generated C++ source
+# (OCP_src_<platform> artifact). This is Python-version-agnostic, so every
+# compile workflow (regular matrix and 3.14t, for that platform) shares this
+# single output rather than each re-running codegen itself.
+
+on:
+  workflow_call:
+    secrets:
+      ANACONDA_TOKEN:
+        required: false
+
+defaults:
+  run:
+    shell: bash -leo pipefail {0}
+
+jobs:
+  generate:
+    name: Generate ${{ matrix.name }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 360
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: true
+
+      - name: Read output dir
+        id: conf
+        run: |
+          OUTPUT=$(grep '^output_folder' ocp.toml | sed -E 's/output_folder *= *"(.*)"/\1/')
+          echo "OUTPUT=$OUTPUT" >> $GITHUB_OUTPUT
+
+      - name: Cache generated bindings
+        id: cache-src
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ steps.conf.outputs.OUTPUT }}
+            ${{ steps.conf.outputs.OUTPUT }}_pkl
+          key: ocp-src-windows-${{ hashFiles('opencascade/**', 'ocp.toml', 'CMakeLists.txt', 'templates/**', 'OCP_specific.inc', 'pystreambuf.h', 'dump_symbols.py', 'environment.devenv.yml', 'pywrap/**') }}
+
+      - uses: ./.github/actions/micromamba
+        if: steps.cache-src.outputs.cache-hit != 'true'
+
+      - name: install conda-devenv
+        if: steps.cache-src.outputs.cache-hit != 'true'
+        run: micromamba install mamba conda-devenv
+
+      - name: Prepare conda environment (mamba-devenv)
+        if: steps.cache-src.outputs.cache-hit != 'true'
+        run: |
+          export CONDA_DEVENV_ENV_MANAGER=mamba
+          micromamba create -n bindgen -y
+          env
+          micromamba run mamba info
+          micromamba run mamba-devenv -f environment.devenv.yml
+
+      - name: Generate (Windows on Linux)
+        if: steps.cache-src.outputs.cache-hit != 'true'
+        run: |
+          micromamba create --yes --platform win-64 --no-deps --prefix ./occt "occt=8.0.0=novtk*"
+          micromamba run -n bindgen cmake -S . -B . -G Ninja \
+            -DPython_ROOT_DIR=$CONDA_PREFIX \
+            -DPython3_ROOT_DIR=$CONDA_PREFIX \
+            -DPython_FIND_VIRTUALENV=ONLY \
+            -DPython3_FIND_VIRTUALENV=ONLY \
+            -DOCCT_LIB_DIR=./occt/Library/bin/ \
+            -DPLATFORM=Windows
+          cmake --build . -- -v
+          ls -lRht
+
+      - name: Copy pkl output
+        if: steps.cache-src.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ${{ steps.conf.outputs.OUTPUT }}_pkl
+          cp *.pkl ${{ steps.conf.outputs.OUTPUT }}_pkl/
+          cp *.dat ${{ steps.conf.outputs.OUTPUT }}_pkl/
+
+      - name: Upload Sources
+        uses: actions/upload-artifact@v7
+        with:
+          name: OCP_src_windows
+          path: ${{ steps.conf.outputs.OUTPUT }}
+
+      - name: Upload Pickles
+        uses: actions/upload-artifact@v7
+        with:
+          name: OCP_pkl_windows
+          path: ${{ steps.conf.outputs.OUTPUT }}_pkl

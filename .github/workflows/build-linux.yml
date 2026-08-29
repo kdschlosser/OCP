@@ -1,0 +1,101 @@
+name: Build Linux
+
+on:
+  workflow_call:
+    secrets:
+      ANACONDA_TOKEN:
+        required: false
+
+defaults:
+  run:
+    shell: bash -leo pipefail {0}
+
+jobs:
+  compile:
+    name: Compile Linux (3.${{ matrix.py_min }})
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        py_min: [11, 12, 13, 14]
+
+    env:
+      OCP_src: OCP_src_linux
+      n_cores: 2
+      PYTHON_VERSION: 3.${{ matrix.py_min }}
+      STAGE: "compile"
+      ANACONDA_TOKEN: ${{ secrets.ANACONDA_TOKEN }}
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: true
+
+      - name: Download Source Artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: OCP_src_linux
+          path: ../${{ env.OCP_src }}
+
+      - uses: ./.github/actions/micromamba
+
+      - name: install conda-devenv
+        run: micromamba install mamba conda-devenv
+
+      - name: Prepare conda environment (mamba-devenv)
+        run: |
+          export CONDA_DEVENV_ENV_MANAGER=mamba
+          micromamba create -n bindgen -y
+          micromamba run mamba-devenv -f environment.devenv.yml
+
+      - name: Compile
+        run: |
+          micromamba run -n bindgen cmake -B build -S "../${OCP_src}" -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release
+          micromamba run -n bindgen cmake --build build -j 2 -- -k 0
+          rm -rf build/CMakeFiles
+
+      - name: Upload Compilation Artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: OCP_Linux_py3${{ matrix.py_min }}
+          path: build
+
+      - name: Generate stubs
+        run: |
+          cd build
+          micromamba run -n bindgen python -m pybind11_stubgen -o . OCP
+          cp -r "../../${OCP_src}" ../upload
+          cp -r OCP-stubs ../upload/
+
+      - name: Upload Stubs Artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: OCP_src_stubs_Linux_py3${{ matrix.py_min }}
+          path: upload
+
+      - name: Test Import
+        run: |
+          cd build
+          micromamba run -n bindgen -e LD_DEBUG=libs python -c "import OCP"
+
+      - name: Run tests
+        run: |
+          cd build
+          micromamba run -n bindgen python -m pytest ../tests
+
+      - name: Build Conda Package
+        if: env.ANACONDA_TOKEN != ''
+        env:
+          BUILD_STRING: "1"
+          TOKEN: ${{ secrets.ANACONDA_TOKEN }}
+        run: |
+          micromamba create -n build -y -c conda-forge python=3.11 liblief=0.14.1 conda-build anaconda-client
+
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            echo "Building for PR..."
+            micromamba run -n build conda build -c conda-forge --override-channels conda
+          else
+            echo "Building and Uploading..."
+            micromamba run -n build conda build --token $TOKEN --user cadquery --label dev -c conda-forge --override-channels conda
+          fi

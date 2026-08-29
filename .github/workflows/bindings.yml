@@ -9,33 +9,47 @@ on:
   workflow_dispatch:
 
 jobs:
-  Linux:
-    uses: ./.github/workflows/build-job.yml
-    with:
-      name: Linux
-      runner_generate: ubuntu-22.04
-      runner_compile: ubuntu-22.04
-      platform: Linux
+  generate_linux:
+    uses: ./.github/workflows/generate_linux.yml
+    secrets:
+      ANACONDA_TOKEN: ${{ secrets.ANACONDA_TOKEN }}
+
+  generate_macos:
+    uses: ./.github/workflows/generate_macos.yml
+    secrets:
+      ANACONDA_TOKEN: ${{ secrets.ANACONDA_TOKEN }}
+
+  generate_windows:
+    uses: ./.github/workflows/generate_windows.yml
     secrets:
       ANACONDA_TOKEN: ${{ secrets.ANACONDA_TOKEN }}
 
   Windows:
-    uses: ./.github/workflows/build-job.yml
-    with:
-      name: Windows
-      # NB: cross-generating for Windows on Linux
-      runner_generate: ubuntu-22.04
-      runner_compile: self-hosted
-      platform: Windows
+    needs: generate_windows
+    uses: ./.github/workflows/build-windows.yml
+    secrets:
+      ANACONDA_TOKEN: ${{ secrets.ANACONDA_TOKEN }}
+
+  Linux:
+    needs: generate_linux
+    uses: ./.github/workflows/build-linux.yml
     secrets:
       ANACONDA_TOKEN: ${{ secrets.ANACONDA_TOKEN }}
 
   OSX:
-    uses: ./.github/workflows/build-job.yml
-    with:
-      name: OSX
-      runner_generate: macos-15
-      runner_compile: macos-15
-      platform: OSX
+    needs: generate_macos
+    uses: ./.github/workflows/build-macos.yml
     secrets:
       ANACONDA_TOKEN: ${{ secrets.ANACONDA_TOKEN }}
+
+  Windows-14t:
+    needs: generate_windows
+    uses: ./.github/workflows/build-windows-14t.yml
+
+  Linux-14t:
+    needs: generate_linux
+    uses: ./.github/workflows/build-linux-14t.yml
+
+  OSX-14t:
+    needs: generate_macos
+    uses: ./.github/workflows/build-macos-14t.yml
