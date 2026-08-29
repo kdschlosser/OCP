@@ -1,7 +1,13 @@
 name: Build Windows (3.14t)
 
 on:
-  workflow_call: {}
+  workflow_call:
+    inputs:
+      with_vtk:
+        description: "Build with VTK (IVtkOCC/IVtkTools) support"
+        type: boolean
+        required: false
+        default: false
 
 defaults:
   run:
@@ -14,6 +20,7 @@ jobs:
 
     env:
       OCP_src: OCP_src_windows
+      WITH_VTK: ${{ inputs.with_vtk }}
       n_cores: 2
       PYTHON_VERSION: 3.14t
       STAGE: "compile"

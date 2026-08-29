@@ -7,49 +7,72 @@ on:
   pull_request:
     branches: [ master ]
   workflow_dispatch:
+    inputs:
+      with_vtk:
+        description: "Build with VTK (IVtkOCC/IVtkTools) support"
+        type: boolean
+        default: false
 
 jobs:
   generate_linux:
     uses: ./.github/workflows/generate_linux.yml
+    with:
+      with_vtk: ${{ inputs.with_vtk == true }}
     secrets:
       ANACONDA_TOKEN: ${{ secrets.ANACONDA_TOKEN }}
 
   generate_macos:
     uses: ./.github/workflows/generate_macos.yml
+    with:
+      with_vtk: ${{ inputs.with_vtk == true }}
     secrets:
       ANACONDA_TOKEN: ${{ secrets.ANACONDA_TOKEN }}
 
   generate_windows:
     uses: ./.github/workflows/generate_windows.yml
+    with:
+      with_vtk: ${{ inputs.with_vtk == true }}
     secrets:
       ANACONDA_TOKEN: ${{ secrets.ANACONDA_TOKEN }}
 
   Windows:
     needs: generate_windows
     uses: ./.github/workflows/build-windows.yml
+    with:
+      with_vtk: ${{ inputs.with_vtk == true }}
     secrets:
       ANACONDA_TOKEN: ${{ secrets.ANACONDA_TOKEN }}
 
   Linux:
     needs: generate_linux
     uses: ./.github/workflows/build-linux.yml
+    with:
+      with_vtk: ${{ inputs.with_vtk == true }}
     secrets:
       ANACONDA_TOKEN: ${{ secrets.ANACONDA_TOKEN }}
 
   OSX:
     needs: generate_macos
     uses: ./.github/workflows/build-macos.yml
+    with:
+      with_vtk: ${{ inputs.with_vtk == true }}
     secrets:
       ANACONDA_TOKEN: ${{ secrets.ANACONDA_TOKEN }}
 
   Windows-14t:
     needs: generate_windows
     uses: ./.github/workflows/build-windows-14t.yml
+    with:
+      with_vtk: ${{ inputs.with_vtk == true }}
 
   Linux-14t:
     needs: generate_linux
     uses: ./.github/workflows/build-linux-14t.yml
+    with:
+      with_vtk: ${{ inputs.with_vtk == true }}
 
   OSX-14t:
     needs: generate_macos
     uses: ./.github/workflows/build-macos-14t.yml
+    with:
+      with_vtk: ${{ inputs.with_vtk == true }}

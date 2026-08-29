@@ -2,6 +2,12 @@ name: Build macOS
 
 on:
   workflow_call:
+    inputs:
+      with_vtk:
+        description: "Build with VTK (IVtkOCC/IVtkTools) support"
+        type: boolean
+        required: false
+        default: false
     secrets:
       ANACONDA_TOKEN:
         required: false
@@ -21,6 +27,7 @@ jobs:
 
     env:
       OCP_src: OCP_src_macos
+      WITH_VTK: ${{ inputs.with_vtk }}
       n_cores: 2
       PYTHON_VERSION: 3.${{ matrix.py_min }}
       STAGE: "compile"

@@ -2,7 +2,12 @@ name: bindgen
 channels:
   - conda-forge
 dependencies:
+  {% if get_env("WITH_VTK", default="false") == "true" %}
+  - occt=8.0.1=*all*
+  - vtk-base
+  {% else %}
   - occt=8.0.0=novtk*
+  {% endif %}
   - cmake >3.24
   - ninja
   {% if  get_env("STAGE", default="generate") == "generate" %}

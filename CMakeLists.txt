@@ -11,10 +11,32 @@ set(MSVC_VER
     16
     CACHE STRING "MSVC version to download for win generation")
 set(OCCT_LIB_DIR CACHE PATH "Location of OCCT sos/dlls")
+option(WITH_VTK "Build VTK (IVtkOCC/IVtkTools) bindings" OFF)
+if(WITH_VTK)
+  set(OCP_TOML_DEFAULT ${CMAKE_SOURCE_DIR}/ocp.toml)
+else()
+  set(OCP_TOML_DEFAULT ${CMAKE_SOURCE_DIR}/ocp_novtk.toml)
+endif()
+set(OCP_TOML
+    ${OCP_TOML_DEFAULT}
+    CACHE FILEPATH "Path to the pywrap/bindgen configuration file")
 
 find_package(LLVM REQUIRED)
 find_package(RapidJSON REQUIRED)
 find_package(Clang REQUIRED)
+
+if(WITH_VTK)
+  find_package(
+    VTK REQUIRED
+    COMPONENTS CommonCore
+               WrappingPythonCore
+               RenderingCore
+               RenderingOpenGL2
+               CommonDataModel
+               CommonExecutionModel
+               freetype)
+  message(STATUS "VTK ${VTK_VERSION} found")
+endif()
 
 set(Python_FIND_VIRTUALENV FIRST)
 find_package(
@@ -44,6 +66,18 @@ execute_process(COMMAND ${Python_EXECUTABLE} ${CMAKE_SOURCE_DIR}/dump_symbols.py
                         "${occt_libs}" WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
 
 get_target_property(LIBCLANG_PATH libclang IMPORTED_LOCATION_RELEASE)
+
+if(WITH_VTK)
+  get_target_property(VTK_INCLUDE_DIR VTK::CommonCore
+                      INTERFACE_INCLUDE_DIRECTORIES)
+
+  # for some reason I get multiple generator expressions
+  string(REPLACE ">" ">;" VTK_INCLUDE_DIR ${VTK_INCLUDE_DIR})
+  list(GET VTK_INCLUDE_DIR 0 VTK_INCLUDE_DIR)
+  set(VTK_INCLUDE_ARG -i ${VTK_INCLUDE_DIR}/)
+
+  message(STATUS "VTK include dir: ${VTK_INCLUDE_DIR}")
+endif()
 
 message(STATUS "Include dirs: ${CMAKE_CXX_IMPLICIT_INCLUDE_DIRECTORIES}")
 
@@ -100,13 +134,14 @@ add_custom_command(
   COMMAND
     ${CMAKE_COMMAND} -E env "PYTHONPATH=${CMAKE_SOURCE_DIR}/pywrap"
     ${Python_EXECUTABLE} -m bindgen -n ${N_PROC} -l ${LIBCLANG_PATH}
+    ${VTK_INCLUDE_ARG}
     # -i ${OPENGL_INCLUDE_DIRS}
     -i ${RapidJSON_INCLUDE_DIRS} -i
     ${CLANG_INSTALL_PREFIX}/lib/clang/${LLVM_VERSION_MAJOR}/include/ -p
-    ${CMAKE_SOURCE_DIR} ${CXX_INCLUDES} parse ${CMAKE_SOURCE_DIR}/ocp.toml
+    ${CMAKE_SOURCE_DIR} ${CXX_INCLUDES} parse ${OCP_TOML}
     tmp.pkl ${PLATFORM}
   WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
-  DEPENDS ${CMAKE_SOURCE_DIR}/ocp.toml
+  DEPENDS ${OCP_TOML}
   USES_TERMINAL
   COMMENT "Running pywrap - parse")
 
@@ -117,10 +152,11 @@ add_custom_command(
   COMMAND
     ${CMAKE_COMMAND} -E env "PYTHONPATH=${CMAKE_SOURCE_DIR}/pywrap"
     ${Python_EXECUTABLE} -m bindgen -n ${N_PROC} -l ${LIBCLANG_PATH}
+    ${VTK_INCLUDE_ARG}
     # -i ${OPENGL_INCLUDE_DIRS}
     -i ${RapidJSON_INCLUDE_DIRS} -i
     ${CLANG_INSTALL_PREFIX}/lib/clang/${LLVM_VERSION_MAJOR}/include/ -p
-    ${CMAKE_SOURCE_DIR} ${CXX_INCLUDES} transform ${CMAKE_SOURCE_DIR}/ocp.toml
+    ${CMAKE_SOURCE_DIR} ${CXX_INCLUDES} transform ${OCP_TOML}
     ${PLATFORM} tmp.pkl tmp_filtered.pkl
   WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
   DEPENDS ${CMAKE_BINARY_DIR}/tmp.pkl
@@ -135,10 +171,11 @@ add_custom_command(
   COMMAND
     ${CMAKE_COMMAND} -E env "PYTHONPATH=${CMAKE_SOURCE_DIR}/pywrap"
     ${Python_EXECUTABLE} -m bindgen -n ${N_PROC} -l ${LIBCLANG_PATH}
+    ${VTK_INCLUDE_ARG}
     # -i ${OPENGL_INCLUDE_DIRS}
     -i ${RapidJSON_INCLUDE_DIRS} -i
     ${CLANG_INSTALL_PREFIX}/lib/clang/${LLVM_VERSION_MAJOR}/include/ -p
-    ${CMAKE_SOURCE_DIR} ${CXX_INCLUDES} generate ${CMAKE_SOURCE_DIR}/ocp.toml
+    ${CMAKE_SOURCE_DIR} ${CXX_INCLUDES} generate ${OCP_TOML}
     ${PLATFORM} tmp_filtered.pkl
   WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
   DEPENDS ${CMAKE_BINARY_DIR}/tmp_filtered.pkl

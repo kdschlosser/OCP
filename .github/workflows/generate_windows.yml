@@ -7,6 +7,12 @@ name: Generate Windows bindings
 
 on:
   workflow_call:
+    inputs:
+      with_vtk:
+        description: "Build with VTK (IVtkOCC/IVtkTools) support"
+        type: boolean
+        required: false
+        default: false
     secrets:
       ANACONDA_TOKEN:
         required: false
@@ -20,6 +26,8 @@ jobs:
     name: Generate ${{ matrix.name }}
     runs-on: ubuntu-22.04
     timeout-minutes: 360
+    env:
+      WITH_VTK: ${{ inputs.with_vtk }}
 
     steps:
       - uses: actions/checkout@v7
@@ -39,7 +47,7 @@ jobs:
           path: |
             ${{ steps.conf.outputs.OUTPUT }}
             ${{ steps.conf.outputs.OUTPUT }}_pkl
-          key: ocp-src-windows-${{ hashFiles('opencascade/**', 'ocp.toml', 'CMakeLists.txt', 'templates/**', 'OCP_specific.inc', 'pystreambuf.h', 'dump_symbols.py', 'environment.devenv.yml', 'pywrap/**') }}
+          key: ocp-src-windows-vtk${{ inputs.with_vtk }}-${{ hashFiles('opencascade/**', 'ocp.toml', 'ocp_novtk.toml', 'CMakeLists.txt', 'templates/**', 'OCP_specific.inc', 'pystreambuf.h', 'vtk_pybind.h', 'dump_symbols.py', 'environment.devenv.yml', 'pywrap/**') }}
 
       - uses: ./.github/actions/micromamba
         if: steps.cache-src.outputs.cache-hit != 'true'
@@ -60,14 +68,19 @@ jobs:
       - name: Generate (Windows on Linux)
         if: steps.cache-src.outputs.cache-hit != 'true'
         run: |
-          micromamba create --yes --platform win-64 --no-deps --prefix ./occt "occt=8.0.0=novtk*"
+          if [ "$WITH_VTK" == "true" ]; then
+            micromamba create --yes --platform win-64 --no-deps --prefix ./occt "occt=8.0.1=*all*"
+          else
+            micromamba create --yes --platform win-64 --no-deps --prefix ./occt "occt=8.0.0=novtk*"
+          fi
           micromamba run -n bindgen cmake -S . -B . -G Ninja \
             -DPython_ROOT_DIR=$CONDA_PREFIX \
             -DPython3_ROOT_DIR=$CONDA_PREFIX \
             -DPython_FIND_VIRTUALENV=ONLY \
             -DPython3_FIND_VIRTUALENV=ONLY \
             -DOCCT_LIB_DIR=./occt/Library/bin/ \
-            -DPLATFORM=Windows
+            -DPLATFORM=Windows \
+            -DWITH_VTK=$WITH_VTK
           cmake --build . -- -v
           ls -lRht
 
